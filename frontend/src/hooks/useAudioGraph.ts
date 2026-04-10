@@ -22,7 +22,12 @@ export function useAudioGraph({
   phaserFactor,
   sidechainFactor,
   vinylCrackleLevel,
-  subBassFactor
+  subBassFactor,
+  autoWahFactor,
+  megaphoneFactor,
+  tapeDelayLevel,
+  fuzzFactor,
+  lofiSampleRate
 }: {
   audioRef: RefObject<HTMLAudioElement | null>;
   rate: number;
@@ -45,6 +50,11 @@ export function useAudioGraph({
   sidechainFactor: number;
   vinylCrackleLevel: number;
   subBassFactor: number;
+  autoWahFactor: number;
+  megaphoneFactor: number;
+  tapeDelayLevel: number;
+  fuzzFactor: number;
+  lofiSampleRate: number;
 }) {
   const [ctxInitialized, setCtxInitialized] = useState(false);
   
@@ -81,6 +91,14 @@ export function useAudioGraph({
   const sidechainLfoGainRef = useRef<GainNode | null>(null);
   const vinylGainRef = useRef<GainNode | null>(null);
   const subBassGainRef = useRef<GainNode | null>(null);
+  const autoWahLfoGainRef = useRef<GainNode | null>(null);
+  const autoWahDryRef = useRef<GainNode | null>(null);
+  const autoWahWetRef = useRef<GainNode | null>(null);
+
+  const megaphoneWetRef = useRef<GainNode | null>(null);
+  const tapeDelayWetRef = useRef<GainNode | null>(null);
+  const fuzzRef = useRef<WaveShaperNode | null>(null);
+  const resampleFilterRef = useRef<BiquadFilterNode | null>(null);
 
   // Bitcrusher generator
   const makeDistortionCurve = (amount: number) => {
@@ -108,7 +126,19 @@ export function useAudioGraph({
       curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
     }
     return curve;
-  }
+  };
+
+  const makeFuzzCurve = (amount: number) => {
+    const k = amount * 100; 
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    for (let i = 0; i < n_samples; ++i) {
+      const x = i * 2 / n_samples - 1;
+      // Hard clipping / square-like asymptote
+      curve[i] = Math.sign(x) * (1 - Math.exp(-Math.abs(x) * (k + 1)));
+    }
+    return curve;
+  };
 
   const initWebAudio = () => {
     if (!audioRef.current || ctxRef.current) return;
@@ -350,6 +380,66 @@ export function useAudioGraph({
     subBassFilter.connect(subBassComp);
     subBassComp.connect(subBassGain);
     subBassGainRef.current = subBassGain;
+
+    // 15. Auto-Wah (Envelope/LFO Filter)
+    const autoWahFilter = ctx.createBiquadFilter();
+    autoWahFilter.type = 'bandpass';
+    autoWahFilter.Q.value = 4.0;
+    autoWahFilter.frequency.value = 350; // base freq
+    
+    const autoWahLfo = ctx.createOscillator();
+    autoWahLfo.type = 'sine';
+    autoWahLfo.frequency.value = 3.5; // wah speed
+    const autoWahLfoGain = ctx.createGain();
+    autoWahLfoGain.gain.value = autoWahFactor * 2500; // Modulate frequency by up to 2500Hz
+    autoWahLfo.connect(autoWahLfoGain);
+    autoWahLfoGain.connect(autoWahFilter.frequency);
+    autoWahLfo.start();
+    
+    const autoWahDry = ctx.createGain();
+    autoWahDry.gain.value = 1.0;
+    const autoWahWet = ctx.createGain();
+    autoWahWet.gain.value = autoWahFactor > 0 ? 1.5 : 0; // gain makeup
+    
+    autoWahLfoGainRef.current = autoWahLfoGain;
+    autoWahDryRef.current = autoWahDry;
+    autoWahWetRef.current = autoWahWet;
+
+    // 16. Megaphone EQ (Bandpass + Distortion)
+    const megaphoneFilter = ctx.createBiquadFilter();
+    megaphoneFilter.type = 'bandpass';
+    megaphoneFilter.frequency.value = 1500;
+    megaphoneFilter.Q.value = 1.5;
+    const megaphoneDist = ctx.createWaveShaper();
+    megaphoneDist.curve = makeFuzzCurve(0.5); // Fixed crunch
+    const megaphoneWet = ctx.createGain(); megaphoneWet.gain.value = megaphoneFactor;
+    megaphoneWetRef.current = megaphoneWet;
+
+    // 17. Tape Delay
+    const tapeDelayNode = ctx.createDelay(); tapeDelayNode.delayTime.value = 0.4;
+    const tapeDelayFeedback = ctx.createGain(); tapeDelayFeedback.gain.value = 0.5; // Fixed repeats
+    const tapeDelayFilter = ctx.createBiquadFilter();
+    tapeDelayFilter.type = 'lowpass'; tapeDelayFilter.frequency.value = 2000; // Dark analog echo
+    
+    // routing feedback
+    tapeDelayNode.connect(tapeDelayFilter);
+    tapeDelayFilter.connect(tapeDelayFeedback);
+    tapeDelayFeedback.connect(tapeDelayNode);
+    
+    const tapeDelayWet = ctx.createGain(); tapeDelayWet.gain.value = tapeDelayLevel;
+    tapeDelayWetRef.current = tapeDelayWet;
+
+    // 18. Fuzz
+    const fuzzNode = ctx.createWaveShaper();
+    fuzzNode.curve = fuzzFactor > 0 ? makeFuzzCurve(fuzzFactor * 2) : null;
+    fuzzRef.current = fuzzNode;
+
+    // 19. Resample (Heavy Lowpass mimic)
+    const resampleFilter = ctx.createBiquadFilter();
+    resampleFilter.type = 'lowpass';
+    // Drops from 20000hz down to 2000hz as factor increases
+    resampleFilter.frequency.value = 20000 - (lofiSampleRate * 18000); 
+    resampleFilterRef.current = resampleFilter;
     
     // Master Volume Control Layer
     const masterGain = ctx.createGain();
@@ -373,10 +463,21 @@ export function useAudioGraph({
     biquad.connect(muffle);
     muffle.connect(highpass);
     highpass.connect(bitcrush);
-    bitcrush.connect(overdrive);
+    bitcrush.connect(resampleFilter);
+    resampleFilter.connect(overdrive);
+    overdrive.connect(fuzzNode);
+    
+    // Megaphone Insert
+    const postMegaphoneDry = ctx.createGain(); postMegaphoneDry.gain.value = 1;
+    fuzzNode.connect(postMegaphoneDry);
+    
+    fuzzNode.connect(megaphoneFilter);
+    megaphoneFilter.connect(megaphoneDist);
+    megaphoneDist.connect(megaphoneWet);
     
     // Add Ring Mod
-    overdrive.connect(ringModGain);
+    postMegaphoneDry.connect(ringModGain);
+    megaphoneWet.connect(ringModGain);
     ringModGain.connect(ringModWet);
 
     const postRingModDry = ctx.createGain(); postRingModDry.gain.value = 1;
@@ -397,8 +498,20 @@ export function useAudioGraph({
     preFlangerDry.connect(postPhaserDry);
     flangerWet.connect(postPhaserDry);
 
-    postPhaserDry.connect(sidechainGain);
-    phaserWet.connect(sidechainGain);
+    // Auto Wah routing
+    const preAutoWahGain = ctx.createGain(); preAutoWahGain.gain.value = 1;
+    postPhaserDry.connect(preAutoWahGain);
+    phaserWet.connect(preAutoWahGain);
+
+    preAutoWahGain.connect(autoWahDry);
+    preAutoWahGain.connect(autoWahFilter);
+    autoWahFilter.connect(autoWahWet);
+
+    const postAutoWahDry = ctx.createGain(); postAutoWahDry.gain.value = 1;
+    autoWahDry.connect(postAutoWahDry);
+    autoWahWet.connect(postAutoWahDry);
+
+    postAutoWahDry.connect(sidechainGain);
 
     sidechainGain.connect(tremoloGain);
 
@@ -415,6 +528,12 @@ export function useAudioGraph({
     panner.connect(pingPongIn);
     pingPongWet.connect(dryGain);
     pingPongWet.connect(convolver);
+
+    // Tape Delay tap
+    panner.connect(tapeDelayNode);
+    tapeDelayNode.connect(tapeDelayWet);
+    tapeDelayWet.connect(dryGain);
+    tapeDelayWet.connect(convolver);
 
     // Reverb split
     panner.connect(dryGain);
@@ -535,5 +654,68 @@ export function useAudioGraph({
     if (subBassGainRef.current) subBassGainRef.current.gain.value = subBassFactor * 2.0;
   }, [subBassFactor]);
 
-  return { initWebAudio, ctxInitialized, resumeContext };
+  useEffect(() => {
+    if (autoWahLfoGainRef.current && autoWahWetRef.current) {
+      autoWahLfoGainRef.current.gain.value = autoWahFactor * 2500;
+      autoWahWetRef.current.gain.value = autoWahFactor > 0 ? 1.5 : 0;
+    }
+  }, [autoWahFactor]);
+
+  useEffect(() => {
+    if (megaphoneWetRef.current) megaphoneWetRef.current.gain.value = megaphoneFactor;
+  }, [megaphoneFactor]);
+
+  useEffect(() => {
+    if (tapeDelayWetRef.current) tapeDelayWetRef.current.gain.value = tapeDelayLevel;
+  }, [tapeDelayLevel]);
+
+  useEffect(() => {
+    if (fuzzRef.current) fuzzRef.current.curve = fuzzFactor > 0 ? makeFuzzCurve(fuzzFactor * 2) : null;
+  }, [fuzzFactor]);
+
+  useEffect(() => {
+    if (resampleFilterRef.current) resampleFilterRef.current.frequency.value = 20000 - (lofiSampleRate * 18000);
+  }, [lofiSampleRate]);
+
+  const resetAudioGraph = () => {
+    if (ctxRef.current) {
+      ctxRef.current.close().catch(() => {});
+      ctxRef.current = null;
+    }
+    // Clear all node refs so initWebAudio rebuilds from scratch
+    biquadRef.current = null;
+    muffleRef.current = null;
+    highpassRef.current = null;
+    bitcrushRef.current = null;
+    vibratoLfoGainRef.current = null;
+    tremoloLfoGainRef.current = null;
+    tremoloGainRef.current = null;
+    chorusLfoRef.current = null;
+    chorusWetGainRef.current = null;
+    pannerLfoGainRef.current = null;
+    dryGainRef.current = null;
+    wetGainRef.current = null;
+    ambientGainRef.current = null;
+    masterGainRef.current = null;
+    overdriveRef.current = null;
+    flangerWetRef.current = null;
+    flangerLfoRef.current = null;
+    pingPongWetRef.current = null;
+    ringModWetRef.current = null;
+    phaserLfoRef.current = null;
+    phaserWetRef.current = null;
+    sidechainLfoGainRef.current = null;
+    vinylGainRef.current = null;
+    subBassGainRef.current = null;
+    autoWahLfoGainRef.current = null;
+    autoWahDryRef.current = null;
+    autoWahWetRef.current = null;
+    megaphoneWetRef.current = null;
+    tapeDelayWetRef.current = null;
+    fuzzRef.current = null;
+    resampleFilterRef.current = null;
+    setCtxInitialized(false);
+  };
+
+  return { initWebAudio, ctxInitialized, resumeContext, resetAudioGraph };
 }

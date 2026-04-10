@@ -31,65 +31,73 @@ export function useWaveSurfer({
   }, [enableLoop]);
 
   useEffect(() => {
-    if (!wavesurferRef.current && waveformContainerRef.current && audioRef.current) {
-      const regions = RegionsPlugin.create();
-      regionsPluginRef.current = regions;
-
-      const ws = WaveSurfer.create({
-        container: waveformContainerRef.current,
-        waveColor: '#52525B', 
-        progressColor: '#FFFFFF',
-        cursorColor: '#FFFFFF',
-        height: 100,
-        media: audioRef.current,
-        plugins: [regions]
-      });
-
-      ws.on('ready', (duration) => {
-        durationRef.current = duration;
-        setTrimStart(0);
-        setTrimEnd(duration);
-        regions.clearRegions();
-        regions.addRegion({
-          start: 0,
-          end: duration,
-          color: 'rgba(255, 255, 255, 0.1)',
-          drag: true,
-          resize: true
-        });
-      });
-
-      ws.on('play', () => setIsPlaying(true));
-      ws.on('pause', () => setIsPlaying(false));
-
-      regions.on('region-updated', (region) => {
-        setTrimStart(region.start);
-        setTrimEnd(region.end);
-      });
-
-      regions.on('region-out', (region) => {
-         if (enableLoopRef.current) {
-            ws.setTime(region.start);
-         } else {
-            ws.pause();
-         }
-      });
-
-      wavesurferRef.current = ws;
+    // If no URL or refs, clean up
+    if (!musicUrl || !waveformContainerRef.current || !audioRef.current) {
+        return;
     }
+
+    // Destroy existing instance
+    if (wavesurferRef.current) {
+        wavesurferRef.current.destroy();
+        wavesurferRef.current = null;
+    }
+
+    setIsPlaying(false);
+
+    const regions = RegionsPlugin.create();
+    regionsPluginRef.current = regions;
+
+    const ws = WaveSurfer.create({
+      container: waveformContainerRef.current,
+      waveColor: '#52525B', 
+      progressColor: '#FFFFFF',
+      cursorColor: '#FFFFFF',
+      height: 100,
+      media: audioRef.current, // will be the fresh <audio> DOM node
+      url: musicUrl, // explicitly load the url
+      plugins: [regions]
+    });
+
+    ws.on('ready', (duration) => {
+      durationRef.current = duration;
+      setTrimStart(0);
+      setTrimEnd(duration);
+      ws.setTime(0);
+      regions.clearRegions();
+      regions.addRegion({
+        start: 0,
+        end: duration,
+        color: 'rgba(255, 255, 255, 0.1)',
+        drag: true,
+        resize: true
+      });
+    });
+
+    ws.on('play', () => setIsPlaying(true));
+    ws.on('pause', () => setIsPlaying(false));
+
+    regions.on('region-updated', (region) => {
+      setTrimStart(region.start);
+      setTrimEnd(region.end);
+    });
+
+    regions.on('region-out', (region) => {
+       if (enableLoopRef.current) {
+          ws.setTime(region.start);
+       } else {
+          ws.pause();
+       }
+    });
+
+    wavesurferRef.current = ws;
 
     return () => {
-      // Cleanup happens only once component completely dismounts, 
-      // preventing flicker in React strict mode if wrapped properly.
+      if (wavesurferRef.current) {
+          wavesurferRef.current.destroy();
+          wavesurferRef.current = null;
+      }
     };
-  }, []); // Only init once statically
-
-  useEffect(() => {
-    if (wavesurferRef.current && musicUrl) {
-      wavesurferRef.current.pause(); 
-      wavesurferRef.current.load(musicUrl);
-    }
-  }, [musicUrl]);
+  }, [musicUrl]); // Complete teardown and rebuild ensures perfectly clean state!
 
   const togglePlayback = () => {
     if (!wavesurferRef.current || !musicUrl) return;

@@ -21,6 +21,12 @@ export interface FXRackProps {
   sidechainFactor: number; setSidechainFactor: (v: number) => void;
   vinylCrackleLevel: number; setVinylCrackleLevel: (v: number) => void;
   subBassFactor: number; setSubBassFactor: (v: number) => void;
+  autoWahFactor: number; setAutoWahFactor: (v: number) => void;
+
+  megaphoneFactor: number; setMegaphoneFactor: (v: number) => void;
+  tapeDelayLevel: number; setTapeDelayLevel: (v: number) => void;
+  fuzzFactor: number; setFuzzFactor: (v: number) => void;
+  lofiSampleRate: number; setLofiSampleRate: (v: number) => void;
 }
 
 const Card = ({ title, valueLabel, children }: any) => (
@@ -52,7 +58,12 @@ export function FXRack({
   phaserFactor, setPhaserFactor,
   sidechainFactor, setSidechainFactor,
   vinylCrackleLevel, setVinylCrackleLevel,
-  subBassFactor, setSubBassFactor
+  subBassFactor, setSubBassFactor,
+  autoWahFactor, setAutoWahFactor,
+  megaphoneFactor, setMegaphoneFactor,
+  tapeDelayLevel, setTapeDelayLevel,
+  fuzzFactor, setFuzzFactor,
+  lofiSampleRate, setLofiSampleRate
 }: FXRackProps) {
   
   return (
@@ -62,8 +73,8 @@ export function FXRack({
       <div className="flex flex-col gap-3">
          <h2 className="text-[10px] text-zinc-500 uppercase tracking-widest px-2 font-bold mb-1">Pitch & Rhythm</h2>
          <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Card title="SPEED" valueLabel={`${rate.toFixed(2)}x`}>
-               <input type="range" min="0.5" max="1.5" step="0.01" value={rate} onChange={(e) => setRate(parseFloat(e.target.value))} />
+            <Card title="SPEED (+ PITCH)" valueLabel={`${Math.round(rate * 100)}%`}>
+               <input type="range" min="0.5" max="2.0" step="0.01" value={rate} onChange={(e) => setRate(parseFloat(e.target.value))} />
             </Card>
             <Card title="VIBRATO" valueLabel={`${Math.round(vibratoDepth * 100)}%`}>
                <input type="range" min="0" max="1" step="0.01" value={vibratoDepth} onChange={(e) => setVibratoDepth(parseFloat(e.target.value))} />
@@ -94,6 +105,9 @@ export function FXRack({
             </Card>
             <Card title="PING-PONG" valueLabel={`${Math.round(pingPongLevel * 100)}%`}>
                <input type="range" min="0" max="1" step="0.01" value={pingPongLevel} onChange={(e) => setPingPongLevel(parseFloat(e.target.value))} />
+            </Card>
+            <Card title="TAPE DELAY" valueLabel={`${Math.round(tapeDelayLevel * 100)}%`}>
+               <input type="range" min="0" max="1" step="0.01" value={tapeDelayLevel} onChange={(e) => setTapeDelayLevel(parseFloat(e.target.value))} />
             </Card>
             <Card title="PHASER" valueLabel={`${Math.round(phaserFactor * 100)}%`}>
                <input type="range" min="0" max="1" step="0.01" value={phaserFactor} onChange={(e) => setPhaserFactor(parseFloat(e.target.value))} />
@@ -146,6 +160,18 @@ export function FXRack({
             </Card>
             <Card title="SIDECHAIN" valueLabel={`${Math.round(sidechainFactor * 100)}%`}>
                <input type="range" min="0" max="1" step="0.01" value={sidechainFactor} onChange={(e) => setSidechainFactor(parseFloat(e.target.value))} />
+            </Card>
+            <Card title="AUTO-WAH" valueLabel={`${Math.round(autoWahFactor * 100)}%`}>
+               <input type="range" min="0" max="1" step="0.01" value={autoWahFactor} onChange={(e) => setAutoWahFactor(parseFloat(e.target.value))} />
+            </Card>
+            <Card title="MEGAPHONE" valueLabel={`${Math.round(megaphoneFactor * 100)}%`}>
+               <input type="range" min="0" max="1" step="0.01" value={megaphoneFactor} onChange={(e) => setMegaphoneFactor(parseFloat(e.target.value))} />
+            </Card>
+            <Card title="FUZZ" valueLabel={`${Math.round(fuzzFactor * 100)}%`}>
+               <input type="range" min="0" max="1" step="0.01" value={fuzzFactor} onChange={(e) => setFuzzFactor(parseFloat(e.target.value))} />
+            </Card>
+            <Card title="LO-FI RESAMPLE" valueLabel={`${Math.round(lofiSampleRate * 100)}%`}>
+               <input type="range" min="0" max="1" step="0.01" value={lofiSampleRate} onChange={(e) => setLofiSampleRate(parseFloat(e.target.value))} />
             </Card>
             <div className="lg:col-span-4">
                <Card title="VINYL CRACKLE" valueLabel={`${Math.round(vinylCrackleLevel * 100)}%`}>

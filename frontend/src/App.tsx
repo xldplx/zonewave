@@ -43,9 +43,20 @@ export default function App() {
   const [sidechainFactor, setSidechainFactor] = useState(0);
   const [vinylCrackleLevel, setVinylCrackleLevel] = useState(0);
   const [subBassFactor, setSubBassFactor] = useState(0);
+  const [autoWahFactor, setAutoWahFactor] = useState(0);
+  const [megaphoneFactor, setMegaphoneFactor] = useState(0);
+  const [tapeDelayLevel, setTapeDelayLevel] = useState(0);
+  const [fuzzFactor, setFuzzFactor] = useState(0);
+  const [lofiSampleRate, setLofiSampleRate] = useState(0);
+
+  // Video output state
+  const [videoNoir, setVideoNoir] = useState(false);
 
   // File output state
   const [outputName, setOutputName] = useState("");
+
+  const [isTapeStopping, setIsTapeStopping] = useState(false);
+  const tapeStopAnimRef = useRef<number | null>(null);
 
   // Core references
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -54,9 +65,9 @@ export default function App() {
   // Modular hooks
   const { musicFile, imageFile, musicUrl, imageUrl, onMusicDrop, onImageDrop } = useMediaManager();
   
-  const { initWebAudio, resumeContext } = useAudioGraph({
+  const { initWebAudio, resumeContext, resetAudioGraph } = useAudioGraph({
       audioRef, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, masterVolume,
-      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor
+      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate
   });
 
   const { isPlaying, trimStart, trimEnd, togglePlayback, stopPlayback, updateTrimRegion } = useWaveSurfer({
@@ -65,7 +76,8 @@ export default function App() {
 
   const { exportMedia, isExporting, progress, progressText } = useFFmpegExport({
       musicFile, imageFile, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, trimStart, trimEnd,
-      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor
+      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, videoNoir, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate,
+      onExportComplete: resumeContext
   });
 
   const lastMusicFileRef = useRef<File | null>(null);
@@ -74,8 +86,36 @@ export default function App() {
     if (musicFile && musicFile !== lastMusicFileRef.current) {
         lastMusicFileRef.current = musicFile;
         setOutputName(musicFile.name.replace(/\.[^/.]+$/, "") + " (zonewave mix)");
+        resetAudioGraph();
+        setIsTapeStopping(false);
+        if (tapeStopAnimRef.current) cancelAnimationFrame(tapeStopAnimRef.current);
     }
-  }, [musicFile]);
+  }, [musicFile, resetAudioGraph]);
+
+  const toggleTapeStop = () => {
+    if (!audioRef.current) return;
+    if (!isTapeStopping) {
+      setIsTapeStopping(true);
+      let currentRate = audioRef.current.playbackRate;
+      const decay = () => {
+          if (!audioRef.current) return;
+          currentRate *= 0.85; 
+          audioRef.current.playbackRate = currentRate;
+          if (currentRate < 0.05) {
+              audioRef.current.playbackRate = 0;
+              stopPlayback();
+          } else {
+              tapeStopAnimRef.current = requestAnimationFrame(decay);
+          }
+      };
+      tapeStopAnimRef.current = requestAnimationFrame(decay);
+    } else {
+      setIsTapeStopping(false);
+      if (tapeStopAnimRef.current) cancelAnimationFrame(tapeStopAnimRef.current);
+      audioRef.current.playbackRate = rate; 
+      if (!isPlaying) togglePlayback();
+    }
+  };
 
   const randomizeFX = () => {
     setRate(parseFloat((0.8 + Math.random() * 0.4).toFixed(2))); 
@@ -97,6 +137,11 @@ export default function App() {
     setSidechainFactor(Math.random() > 0.6 ? parseFloat((Math.random() * 0.8).toFixed(2)) : 0);
     setVinylCrackleLevel(Math.random() > 0.5 ? parseFloat((Math.random() * 0.6).toFixed(2)) : 0);
     setSubBassFactor(Math.random() > 0.6 ? parseFloat(Math.random().toFixed(2)) : 0);
+    setAutoWahFactor(Math.random() > 0.7 ? parseFloat(Math.random().toFixed(2)) : 0);
+    setMegaphoneFactor(Math.random() > 0.8 ? parseFloat(Math.random().toFixed(2)) : 0);
+    setTapeDelayLevel(Math.random() > 0.6 ? parseFloat((Math.random() * 0.8).toFixed(2)) : 0);
+    setFuzzFactor(Math.random() > 0.8 ? parseFloat(Math.random().toFixed(2)) : 0);
+    setLofiSampleRate(Math.random() > 0.8 ? parseFloat(Math.random().toFixed(2)) : 0);
   };
 
   return (
@@ -130,6 +175,11 @@ export default function App() {
                     <button onClick={stopPlayback} className="bg-zinc-800 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-700 transition-colors">
                        <FaStop size={14} />
                     </button>
+                    <button 
+                       onClick={toggleTapeStop} 
+                       className={`px-3 h-10 rounded-full flex items-center tracking-widest text-[9px] justify-center transition-colors font-bold ${isTapeStopping ? 'bg-red-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
+                       TAPE STOP
+                    </button>
                     <button onClick={() => setIsLooping(!isLooping)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isLooping ? 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.4)]' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
                        <FaSyncAlt size={14} />
                     </button>
@@ -155,7 +205,7 @@ export default function App() {
                 </div>
               </div>
               
-              <audio ref={audioRef} src={musicUrl || undefined} loop={isLooping} hidden />
+              <audio key={musicUrl || 'empty'} ref={audioRef} loop={isLooping} hidden />
               <div ref={waveformContainerRef} className="w-full relative z-0" />
            </div>
         </div>
@@ -181,6 +231,11 @@ export default function App() {
               sidechainFactor={sidechainFactor} setSidechainFactor={setSidechainFactor}
               vinylCrackleLevel={vinylCrackleLevel} setVinylCrackleLevel={setVinylCrackleLevel}
               subBassFactor={subBassFactor} setSubBassFactor={setSubBassFactor}
+              autoWahFactor={autoWahFactor} setAutoWahFactor={setAutoWahFactor}
+              megaphoneFactor={megaphoneFactor} setMegaphoneFactor={setMegaphoneFactor}
+              tapeDelayLevel={tapeDelayLevel} setTapeDelayLevel={setTapeDelayLevel}
+              fuzzFactor={fuzzFactor} setFuzzFactor={setFuzzFactor}
+              lofiSampleRate={lofiSampleRate} setLofiSampleRate={setLofiSampleRate}
            />
         </div>
 
@@ -209,12 +264,22 @@ export default function App() {
               className="flex-1 min-w-[200px] bg-zinc-800 p-[1.5rem] rounded-xl hover:bg-white hover:text-black transition-colors font-bold text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed border border-transparent hover:border-zinc-300 shadow-xl">
               Export as Audio (.mp3)
             </button>
-            <button 
-              disabled={!musicFile || !imageFile || isExporting || !outputName}
-              onClick={() => exportMedia('mp4', outputName)}
-              className="flex-1 min-w-[200px] bg-white text-black p-[1.5rem] rounded-xl hover:bg-zinc-200 transition-colors font-bold text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.3)]">
-              {imageFile ? "Export as Video with Artwork (.mp4)" : "Add Artwork for Video (.mp4)"}
-            </button>
+            <div className="flex-[2] min-w-[300px] flex gap-2">
+              <button 
+                disabled={!musicFile || !imageFile || isExporting || !outputName}
+                onClick={() => exportMedia('mp4', outputName)}
+                className="flex-[3] bg-white text-black p-[1.5rem] rounded-xl hover:bg-zinc-200 transition-colors font-bold text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.3)]">
+                {imageFile ? "Export as Video (.mp4)" : "Add Artwork for Video"}
+              </button>
+              
+              <button
+                disabled={!imageFile || isExporting}
+                onClick={() => setVideoNoir(!videoNoir)}
+                className={`flex-1 rounded-xl font-bold text-[10px] uppercase transition-all whitespace-normal border border-zinc-700 flex flex-col items-center justify-center gap-1 ${videoNoir ? 'bg-zinc-300 text-black border-zinc-300' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}>
+                {videoNoir ? <span className="w-2 h-2 rounded-full bg-black block mb-1"></span> : <span className="w-2 h-2 rounded-full bg-zinc-700 block mb-1"></span>}
+                Noir Filter
+              </button>
+            </div>
           </div>
         </div>
       </div>

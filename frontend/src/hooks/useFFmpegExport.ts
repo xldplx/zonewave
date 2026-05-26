@@ -32,6 +32,8 @@ export function useFFmpegExport({
   tapeDelayLevel,
   fuzzFactor,
   lofiSampleRate,
+  haasDelayFactor,
+  dynamicPunch,
   onExportComplete
 }: {
   musicFile: File | null;
@@ -63,6 +65,8 @@ export function useFFmpegExport({
   tapeDelayLevel: number;
   fuzzFactor: number;
   lofiSampleRate: number;
+  haasDelayFactor: number;
+  dynamicPunch: number;
   onExportComplete?: () => void;
 }) {
   const [isExporting, setIsExporting] = useState(false);
@@ -194,6 +198,11 @@ export function useFFmpegExport({
 
       if (enable8D) audioFilter += `,apulsator=hz=0.1`;
 
+      if (haasDelayFactor > 0) {
+        const ms = Math.round(haasDelayFactor * 30);
+        audioFilter += `,adelay=0|${ms}`;
+      }
+
       if (reverbMode > 0) {
         const d1 = (0.5 * reverbMode).toFixed(2);
         const d2 = (0.4 * reverbMode).toFixed(2);
@@ -203,6 +212,13 @@ export function useFFmpegExport({
         renderDuration += 4;
         
         audioFilter += `,aecho=1.0:0.7:313|503|701:${d1}|${d2}|${d3}`;
+      }
+
+      if (dynamicPunch > 0) {
+        const threshold = -(dynamicPunch * 35);
+        const ratio = 1 + (dynamicPunch * 5);
+        const makeup = 1.0 + (dynamicPunch * 1.0);
+        audioFilter += `,acompressor=threshold=${threshold.toFixed(1)}dB:ratio=${ratio.toFixed(2)}:attack=3:release=150:makeup=${makeup.toFixed(2)}`;
       }
 
       // Generate the ambient background if needed
@@ -244,7 +260,8 @@ export function useFFmpegExport({
           '-i', audioName,
           '-filter_complex', cleanFilterComplex,
           '-map', '[mixout]',
-          '-t', renderDuration.toFixed(3),
+          '-c:a', 'libmp3lame',
+          '-b:a', '320k',
           'output.mp3'
         ]);
 
@@ -253,7 +270,7 @@ export function useFFmpegExport({
         }
         
         const data = await ffmpeg.readFile('output.mp3');
-        const url = URL.createObjectURL(new Blob([data as any], { type: 'audio/mp3' }));
+        const url = URL.createObjectURL(new Blob([data as any], { type: 'audio/mpeg' }));
         downloadFile(url, `${outputName || 'zonewave'}-processed.mp3`);
       } else if (type === 'mp4') {
         const imageExt = imageFile ? imageFile.name.split('.').pop() : 'jpg';
@@ -285,7 +302,7 @@ export function useFFmpegExport({
           '-c:v', 'libx264',
           '-preset', 'ultrafast',
           '-c:a', 'aac',
-          '-b:a', '192k',
+          '-b:a', '320k',
           '-pix_fmt', 'yuv420p',
           '-t', renderDuration.toFixed(3),
           'output.mp4'

@@ -22,6 +22,8 @@ export function useWaveSurfer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   
   const durationRef = useRef(0);
   const enableLoopRef = useRef(enableLoop);
@@ -58,19 +60,25 @@ export function useWaveSurfer({
       plugins: [regions]
     });
 
-    ws.on('ready', (duration) => {
-      durationRef.current = duration;
+    ws.on('ready', (d) => {
+      durationRef.current = d;
+      setDuration(d);
       setTrimStart(0);
-      setTrimEnd(duration);
+      setTrimEnd(d);
       ws.setTime(0);
+      setCurrentTime(0);
       regions.clearRegions();
       regions.addRegion({
         start: 0,
-        end: duration,
+        end: d,
         color: 'rgba(255, 255, 255, 0.1)',
         drag: true,
         resize: true
       });
+    });
+
+    ws.on('timeupdate', (time) => {
+      setCurrentTime(time);
     });
 
     ws.on('play', () => setIsPlaying(true));
@@ -130,5 +138,5 @@ export function useWaveSurfer({
     }
   };
 
-  return { wavesurferRef, isPlaying, trimStart, trimEnd, togglePlayback, stopPlayback, updateTrimRegion };
+  return { wavesurferRef, isPlaying, trimStart, trimEnd, currentTime, duration, togglePlayback, stopPlayback, updateTrimRegion };
 }

@@ -48,6 +48,8 @@ export default function App() {
   const [tapeDelayLevel, setTapeDelayLevel] = useState(0);
   const [fuzzFactor, setFuzzFactor] = useState(0);
   const [lofiSampleRate, setLofiSampleRate] = useState(0);
+  const [haasDelayFactor, setHaasDelayFactor] = useState(0);
+  const [dynamicPunch, setDynamicPunch] = useState(0);
 
   // Video output state
   const [videoNoir, setVideoNoir] = useState(false);
@@ -65,18 +67,25 @@ export default function App() {
   // Modular hooks
   const { musicFile, imageFile, musicUrl, imageUrl, onMusicDrop, onImageDrop } = useMediaManager();
   
-  const { initWebAudio, resumeContext, resetAudioGraph } = useAudioGraph({
+  const { initWebAudio, resumeContext } = useAudioGraph({
       audioRef, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, masterVolume,
-      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate
+      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch
   });
 
-  const { isPlaying, trimStart, trimEnd, togglePlayback, stopPlayback, updateTrimRegion } = useWaveSurfer({
+  const { isPlaying, trimStart, trimEnd, currentTime, duration, togglePlayback, stopPlayback, updateTrimRegion } = useWaveSurfer({
       waveformContainerRef, audioRef, musicUrl, enableLoop: isLooping, initWebAudio
   });
 
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    const hundredths = Math.floor((time % 1) * 100);
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${hundredths.toString().padStart(2, "0")}`;
+  };
+
   const { exportMedia, isExporting, progress, progressText } = useFFmpegExport({
       musicFile, imageFile, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, trimStart, trimEnd,
-      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, videoNoir, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate,
+      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, videoNoir, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch,
       onExportComplete: resumeContext
   });
 
@@ -86,11 +95,10 @@ export default function App() {
     if (musicFile && musicFile !== lastMusicFileRef.current) {
         lastMusicFileRef.current = musicFile;
         setOutputName(musicFile.name.replace(/\.[^/.]+$/, "") + " (zonewave mix)");
-        resetAudioGraph();
         setIsTapeStopping(false);
         if (tapeStopAnimRef.current) cancelAnimationFrame(tapeStopAnimRef.current);
     }
-  }, [musicFile, resetAudioGraph]);
+  }, [musicFile]);
 
   const toggleTapeStop = () => {
     if (!audioRef.current) return;
@@ -142,6 +150,8 @@ export default function App() {
     setTapeDelayLevel(Math.random() > 0.6 ? parseFloat((Math.random() * 0.8).toFixed(2)) : 0);
     setFuzzFactor(Math.random() > 0.8 ? parseFloat(Math.random().toFixed(2)) : 0);
     setLofiSampleRate(Math.random() > 0.8 ? parseFloat(Math.random().toFixed(2)) : 0);
+    setHaasDelayFactor(Math.random() > 0.6 ? parseFloat(Math.random().toFixed(2)) : 0);
+    setDynamicPunch(Math.random() > 0.6 ? parseFloat(Math.random().toFixed(2)) : 0);
   };
 
   return (
@@ -153,9 +163,9 @@ export default function App() {
         />
       )}
       
-      <div className="flex flex-col justify-center items-center text-center mt-10 z-10 w-full">
-        <h1 className="text-[3.5rem] tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-zinc-100 to-zinc-500">zonewave.</h1>
-        <h1 className="text-[1rem] italic tracking-widest text-zinc-400">the ultimate audio aesthetic suite.</h1>
+      <div className="flex flex-col justify-center items-center text-center mt-10 z-10 w-full select-none">
+        <h1 className="text-[3.5rem] md:text-[4.5rem] tracking-[0.25em] font-extrabold uppercase bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 drop-shadow-[0_0_20px_rgba(168,85,247,0.35)]">zonewave.</h1>
+        <h1 className="text-[0.75rem] md:text-[0.9rem] uppercase tracking-[0.4em] font-bold text-cyan-400 text-glow-cyan mt-1">the ultimate audio aesthetic suite</h1>
       </div>
 
       <div className="flex flex-col gap-[2rem] items-center justify-center max-w-5xl w-full relative z-10">
@@ -183,6 +193,12 @@ export default function App() {
                     <button onClick={() => setIsLooping(!isLooping)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isLooping ? 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.4)]' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
                        <FaSyncAlt size={14} />
                     </button>
+                     
+                     <div className="font-mono text-[10px] md:text-xs tracking-widest bg-zinc-950 px-3.5 h-10 rounded-full border border-zinc-800 text-zinc-400 flex items-center gap-2 select-none shadow-[inset_0_0_8px_rgba(0,0,0,0.8)]">
+                       <span className="text-emerald-400 font-bold drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">{formatTime(currentTime / rate)}</span>
+                       <span className="text-zinc-600 font-bold">/</span>
+                       <span className="text-zinc-500">{formatTime(duration / rate)}</span>
+                     </div>
                 </div>
 
                 <div className="flex items-center gap-3 bg-zinc-800/50 px-4 py-2 rounded-lg border border-zinc-700 flex-1 min-w-[150px] max-w-[200px]">
@@ -205,7 +221,7 @@ export default function App() {
                 </div>
               </div>
               
-              <audio key={musicUrl || 'empty'} ref={audioRef} loop={isLooping} hidden />
+              <audio ref={audioRef} loop={isLooping} hidden />
               <div ref={waveformContainerRef} className="w-full relative z-0" />
            </div>
         </div>
@@ -236,6 +252,8 @@ export default function App() {
               tapeDelayLevel={tapeDelayLevel} setTapeDelayLevel={setTapeDelayLevel}
               fuzzFactor={fuzzFactor} setFuzzFactor={setFuzzFactor}
               lofiSampleRate={lofiSampleRate} setLofiSampleRate={setLofiSampleRate}
+              haasDelayFactor={haasDelayFactor} setHaasDelayFactor={setHaasDelayFactor}
+              dynamicPunch={dynamicPunch} setDynamicPunch={setDynamicPunch}
            />
         </div>
 

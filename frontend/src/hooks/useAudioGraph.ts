@@ -27,7 +27,9 @@ export function useAudioGraph({
   megaphoneFactor,
   tapeDelayLevel,
   fuzzFactor,
-  lofiSampleRate
+  lofiSampleRate,
+  haasDelayFactor,
+  dynamicPunch
 }: {
   audioRef: RefObject<HTMLAudioElement | null>;
   rate: number;
@@ -55,6 +57,8 @@ export function useAudioGraph({
   tapeDelayLevel: number;
   fuzzFactor: number;
   lofiSampleRate: number;
+  haasDelayFactor: number;
+  dynamicPunch: number;
 }) {
   const [ctxInitialized, setCtxInitialized] = useState(false);
   
@@ -99,6 +103,10 @@ export function useAudioGraph({
   const tapeDelayWetRef = useRef<GainNode | null>(null);
   const fuzzRef = useRef<WaveShaperNode | null>(null);
   const resampleFilterRef = useRef<BiquadFilterNode | null>(null);
+
+  const haasDelayRef = useRef<DelayNode | null>(null);
+  const punchCompRef = useRef<DynamicsCompressorNode | null>(null);
+  const punchMakeupRef = useRef<GainNode | null>(null);
 
   // Bitcrusher generator
   const makeDistortionCurve = (amount: number) => {
@@ -440,6 +448,23 @@ export function useAudioGraph({
     // Drops from 20000hz down to 2000hz as factor increases
     resampleFilter.frequency.value = 20000 - (lofiSampleRate * 18000); 
     resampleFilterRef.current = resampleFilter;
+
+    // 20. Haas Effect Spatializer
+    const haasDelay = ctx.createDelay();
+    haasDelay.delayTime.value = haasDelayFactor * 0.03; // max 30ms delay
+    haasDelayRef.current = haasDelay;
+
+    // 21. Dynamic Punch Compressor
+    const punchComp = ctx.createDynamicsCompressor();
+    punchComp.threshold.value = - (dynamicPunch * 35);
+    punchComp.ratio.value = 1 + (dynamicPunch * 5);
+    punchComp.attack.value = 0.003;
+    punchComp.release.value = 0.15;
+    punchComp.knee.value = 30;
+    const punchMakeup = ctx.createGain();
+    punchMakeup.gain.value = 1.0 + (dynamicPunch * 1.0);
+    punchCompRef.current = punchComp;
+    punchMakeupRef.current = punchMakeup;
     
     // Master Volume Control Layer
     const masterGain = ctx.createGain();
@@ -524,24 +549,35 @@ export function useAudioGraph({
     preChorusGain.connect(panner);
     chorusWetGain.connect(panner);
 
+    // Haas Spatializer routing
+    const haasSplitter = ctx.createChannelSplitter(2);
+    const haasMerger = ctx.createChannelMerger(2);
+    panner.connect(haasSplitter);
+    haasSplitter.connect(haasMerger, 0, 0); // Left direct
+    haasSplitter.connect(haasDelay, 1);    // Right to Delay
+    haasDelay.connect(haasMerger, 0, 1);    // Delayed Right to Right channel
+
     // Ping-pong delay tap
-    panner.connect(pingPongIn);
+    haasMerger.connect(pingPongIn);
     pingPongWet.connect(dryGain);
     pingPongWet.connect(convolver);
 
     // Tape Delay tap
-    panner.connect(tapeDelayNode);
+    haasMerger.connect(tapeDelayNode);
     tapeDelayNode.connect(tapeDelayWet);
     tapeDelayWet.connect(dryGain);
     tapeDelayWet.connect(convolver);
 
     // Reverb split
-    panner.connect(dryGain);
-    dryGain.connect(masterGain);
+    haasMerger.connect(dryGain);
+    dryGain.connect(punchComp);
 
-    panner.connect(convolver);
+    haasMerger.connect(convolver);
     convolver.connect(wetGain);
-    wetGain.connect(masterGain);
+    wetGain.connect(punchComp);
+
+    punchComp.connect(punchMakeup);
+    punchMakeup.connect(masterGain);
 
     setCtxInitialized(true);
   };
@@ -677,6 +713,20 @@ export function useAudioGraph({
     if (resampleFilterRef.current) resampleFilterRef.current.frequency.value = 20000 - (lofiSampleRate * 18000);
   }, [lofiSampleRate]);
 
+  useEffect(() => {
+    if (haasDelayRef.current) {
+      haasDelayRef.current.delayTime.value = haasDelayFactor * 0.03;
+    }
+  }, [haasDelayFactor]);
+
+  useEffect(() => {
+    if (punchCompRef.current && punchMakeupRef.current) {
+      punchCompRef.current.threshold.value = - (dynamicPunch * 35);
+      punchCompRef.current.ratio.value = 1 + (dynamicPunch * 5);
+      punchMakeupRef.current.gain.value = 1.0 + (dynamicPunch * 1.0);
+    }
+  }, [dynamicPunch]);
+
   const resetAudioGraph = () => {
     if (ctxRef.current) {
       ctxRef.current.close().catch(() => {});
@@ -714,6 +764,9 @@ export function useAudioGraph({
     tapeDelayWetRef.current = null;
     fuzzRef.current = null;
     resampleFilterRef.current = null;
+    haasDelayRef.current = null;
+    punchCompRef.current = null;
+    punchMakeupRef.current = null;
     setCtxInitialized(false);
   };
 

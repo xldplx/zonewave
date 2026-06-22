@@ -51,6 +51,13 @@ export default function App() {
   const [haasDelayFactor, setHaasDelayFactor] = useState(0);
   const [dynamicPunch, setDynamicPunch] = useState(0);
 
+  // BPM Sync State
+  const [bpm, setBpm] = useState(120);
+  const [bpmSyncEnabled, setBpmSyncEnabled] = useState(false);
+  const [tremoloSyncDivision, setTremoloSyncDivision] = useState("1/4");
+  const [delaySyncDivision, setDelaySyncDivision] = useState("1/4");
+  const [sidechainSyncDivision, setSidechainSyncDivision] = useState("1/4");
+
   // Video output state
   const [videoNoir, setVideoNoir] = useState(false);
 
@@ -69,7 +76,8 @@ export default function App() {
   
   const { initWebAudio, resumeContext } = useAudioGraph({
       audioRef, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, masterVolume,
-      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch
+      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch,
+      bpm, bpmSyncEnabled, tremoloSyncDivision, delaySyncDivision, sidechainSyncDivision
   });
 
   const { isPlaying, trimStart, trimEnd, currentTime, duration, togglePlayback, stopPlayback, updateTrimRegion } = useWaveSurfer({
@@ -86,6 +94,7 @@ export default function App() {
   const { exportMedia, isExporting, progress, progressText } = useFFmpegExport({
       musicFile, imageFile, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, trimStart, trimEnd,
       pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, videoNoir, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch,
+      bpm, bpmSyncEnabled, tremoloSyncDivision, delaySyncDivision, sidechainSyncDivision,
       onExportComplete: resumeContext
   });
 
@@ -193,6 +202,14 @@ export default function App() {
                     <button onClick={() => setIsLooping(!isLooping)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isLooping ? 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.4)]' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
                        <FaSyncAlt size={14} />
                     </button>
+
+                    {bpmSyncEnabled && (
+                        <div 
+                           className={`w-3.5 h-3.5 rounded-full border border-cyan-500/40 flex-shrink-0 transition-all ${isPlaying ? 'metronome-pulse' : ''}`}
+                           style={{ '--metronome-dur': `${60 / bpm}s` } as React.CSSProperties}
+                           title={`BPM: ${bpm}`}
+                        />
+                     )}
                      
                      <div className="font-mono text-[10px] md:text-xs tracking-widest bg-zinc-950 px-3.5 h-10 rounded-full border border-zinc-800 text-zinc-400 flex items-center gap-2 select-none shadow-[inset_0_0_8px_rgba(0,0,0,0.8)]">
                        <span className="text-emerald-400 font-bold drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">{formatTime(currentTime / rate)}</span>
@@ -227,7 +244,7 @@ export default function App() {
         </div>
 
         <div className={`w-full transition-all duration-700 delay-100 ${musicUrl ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none hidden'}`}>
-           <FXRack 
+            <FXRack 
               rate={rate} setRate={setRate}
               vibratoDepth={vibratoDepth} setVibratoDepth={setVibratoDepth}
               tremoloDepth={tremoloDepth} setTremoloDepth={setTremoloDepth}
@@ -254,6 +271,11 @@ export default function App() {
               lofiSampleRate={lofiSampleRate} setLofiSampleRate={setLofiSampleRate}
               haasDelayFactor={haasDelayFactor} setHaasDelayFactor={setHaasDelayFactor}
               dynamicPunch={dynamicPunch} setDynamicPunch={setDynamicPunch}
+              bpm={bpm} setBpm={setBpm}
+              bpmSyncEnabled={bpmSyncEnabled} setBpmSyncEnabled={setBpmSyncEnabled}
+              tremoloSyncDivision={tremoloSyncDivision} setTremoloSyncDivision={setTremoloSyncDivision}
+              delaySyncDivision={delaySyncDivision} setDelaySyncDivision={setDelaySyncDivision}
+              sidechainSyncDivision={sidechainSyncDivision} setSidechainSyncDivision={setSidechainSyncDivision}
            />
         </div>
 

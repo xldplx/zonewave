@@ -32,12 +32,23 @@ export interface FXRackProps {
   lofiSampleRate: number; setLofiSampleRate: (v: number) => void;
   haasDelayFactor: number; setHaasDelayFactor: (v: number) => void;
   dynamicPunch: number; setDynamicPunch: (v: number) => void;
+
+  bpm: number; setBpm: (v: number) => void;
+  bpmSyncEnabled: boolean; setBpmSyncEnabled: (v: boolean) => void;
+  tremoloSyncDivision: string; setTremoloSyncDivision: (v: string) => void;
+  delaySyncDivision: string; setDelaySyncDivision: (v: string) => void;
+  sidechainSyncDivision: string; setSidechainSyncDivision: (v: string) => void;
 }
 
 const Card = ({ title, valueLabel, children, accentColor }: any) => (
   <div 
     className="bg-[#0b0b0f]/80 p-5 rounded-2xl border border-zinc-900 transition-all duration-300 hover:scale-[1.01] flex flex-col justify-between"
-    style={{ borderColor: `rgba(${accentColor}, 0.08)` } as any}
+    style={{ 
+      borderColor: `rgba(${accentColor}, 0.08)`,
+      '--color-primary': `rgb(${accentColor})`,
+      '--color-primary-shadow': `rgba(${accentColor}, 0.4)`,
+      '--color-primary-shadow-hover': `rgba(${accentColor}, 0.8)`
+    } as any}
     onMouseEnter={(e) => {
       e.currentTarget.style.borderColor = `rgba(${accentColor}, 0.35)`;
       e.currentTarget.style.boxShadow = `0 10px 30px -10px rgba(${accentColor}, 0.15)`;
@@ -81,10 +92,33 @@ export function FXRack({
   fuzzFactor, setFuzzFactor,
   lofiSampleRate, setLofiSampleRate,
   haasDelayFactor, setHaasDelayFactor,
-  dynamicPunch, setDynamicPunch
+  dynamicPunch, setDynamicPunch,
+  bpm, setBpm,
+  bpmSyncEnabled, setBpmSyncEnabled,
+  tremoloSyncDivision, setTremoloSyncDivision,
+  delaySyncDivision, setDelaySyncDivision,
+  sidechainSyncDivision, setSidechainSyncDivision
 }: FXRackProps) {
   
   const [activeTab, setActiveTab] = useState<'pitch' | 'space' | 'eq'>('pitch');
+  const [tapTimes, setTapTimes] = useState<number[]>([]);
+
+  const handleTap = () => {
+    const now = performance.now();
+    const newTimes = [...tapTimes, now].filter(t => now - t < 2000);
+    setTapTimes(newTimes);
+    if (newTimes.length > 1) {
+      const intervals = [];
+      for (let i = 1; i < newTimes.length; i++) {
+        intervals.push(newTimes[i] - newTimes[i - 1]);
+      }
+      const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+      const calculatedBpm = Math.round(60000 / avgInterval);
+      if (calculatedBpm >= 40 && calculatedBpm <= 240) {
+        setBpm(calculatedBpm);
+      }
+    }
+  };
 
   // RGB colors corresponding to theme accents
   // purple (168, 85, 247) | cyan (6, 182, 212) | pink (236, 72, 153)
@@ -101,6 +135,47 @@ export function FXRack({
       className="w-full flex flex-col gap-6 transition-all duration-500 mt-2"
       style={{ '--color-primary': currentTheme.hex } as any}
     >
+      
+      {/* Global BPM Sync Control Panel */}
+      <div className="w-full bg-[#0b0b0f]/80 p-5 rounded-2xl border border-zinc-900 flex flex-col md:flex-row gap-4 items-center justify-between shadow-xl">
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col">
+            <h2 className="text-[10px] text-zinc-500 font-extrabold tracking-[0.15em] uppercase">BPM Sync Engine</h2>
+            <span className="text-[9px] text-cyan-400 font-bold tracking-[0.1em] uppercase mt-0.5">Quantize LFOs & Delays</span>
+          </div>
+          <div 
+            onClick={() => setBpmSyncEnabled(!bpmSyncEnabled)}
+            className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-colors flex-shrink-0 ${bpmSyncEnabled ? 'bg-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.4)]' : 'bg-zinc-800'}`}>
+            <div className={`bg-black w-4 h-4 rounded-full transition-transform ${bpmSyncEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 w-full md:w-auto flex-1 justify-end max-w-lg">
+          <div className="flex flex-col flex-1 max-w-[200px]">
+            <div className="flex justify-between font-mono text-[10px] text-zinc-400 mb-1">
+              <span>MANUAL BPM</span>
+              <span className="text-cyan-400 font-bold">{bpm} BPM</span>
+            </div>
+            <input 
+              type="range" min="40" max="220" step="1" 
+              value={bpm} 
+              onChange={(e) => setBpm(parseInt(e.target.value))} 
+              className="w-full relative top-[2px]" 
+              style={{
+                '--color-primary': '#06b6d4',
+                '--color-primary-shadow': 'rgba(6, 182, 212, 0.4)',
+                '--color-primary-shadow-hover': 'rgba(6, 182, 212, 0.8)'
+              } as any}
+            />
+          </div>
+
+          <button 
+            onClick={handleTap} 
+            className="px-5 py-2.5 bg-zinc-900 border border-zinc-800 hover:border-cyan-500/40 hover:bg-cyan-950/20 active:scale-95 transition-all text-cyan-400 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md">
+            TAP TEMPO
+          </button>
+        </div>
+      </div>
       
       {/* Category Tabs */}
       <div className="flex gap-2 p-1.5 bg-zinc-950/80 rounded-2xl border border-zinc-900/60 max-w-2xl mx-auto w-full">
@@ -135,7 +210,23 @@ export function FXRack({
                   <input type="range" min="0" max="1" step="0.01" value={vibratoDepth} onChange={(e) => setVibratoDepth(parseFloat(e.target.value))} />
                </Card>
                <Card title="Rhythmic Tremolo" valueLabel={`${Math.round(tremoloDepth * 100)}%`} accentColor={currentTheme.rgb}>
-                  <input type="range" min="0" max="1" step="0.01" value={tremoloDepth} onChange={(e) => setTremoloDepth(parseFloat(e.target.value))} />
+                  <div className="flex flex-col gap-2 mt-1">
+                     {bpmSyncEnabled && (
+                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold mb-1">
+                           <span>SYNC RATE</span>
+                           <select 
+                              value={tremoloSyncDivision} 
+                              onChange={(e) => setTremoloSyncDivision(e.target.value)}
+                              className="bg-zinc-900 text-white border border-zinc-800 rounded px-2 py-0.5 outline-none font-mono text-[10px]">
+                              <option value="1/2">1/2 (Half)</option>
+                              <option value="1/4">1/4 (Beat)</option>
+                              <option value="1/8">1/8 (Eighth)</option>
+                              <option value="1/16">1/16 (Sixteenth)</option>
+                           </select>
+                        </div>
+                     )}
+                     <input type="range" min="0" max="1" step="0.01" value={tremoloDepth} onChange={(e) => setTremoloDepth(parseFloat(e.target.value))} />
+                  </div>
                </Card>
             </div>
          )}
@@ -157,10 +248,39 @@ export function FXRack({
                   <input type="range" min="0" max="1" step="0.01" value={flangerFactor} onChange={(e) => setFlangerFactor(parseFloat(e.target.value))} />
                </Card>
                <Card title="Ping-Pong Echo" valueLabel={`${Math.round(pingPongLevel * 100)}%`} accentColor={currentTheme.rgb}>
-                  <input type="range" min="0" max="1" step="0.01" value={pingPongLevel} onChange={(e) => setPingPongLevel(parseFloat(e.target.value))} />
+                  <div className="flex flex-col gap-2 mt-1">
+                     {bpmSyncEnabled && (
+                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold mb-1">
+                           <span>SYNC RATE</span>
+                           <select 
+                              value={delaySyncDivision} 
+                              onChange={(e) => setDelaySyncDivision(e.target.value)}
+                              className="bg-zinc-900 text-white border border-zinc-800 rounded px-2 py-0.5 outline-none font-mono text-[10px]">
+                              <option value="1/4">1/4 (Beat)</option>
+                              <option value="1/8">1/8 (Eighth)</option>
+                              <option value="1/16">1/16 (Sixteenth)</option>
+                              <option value="3/8">3/8 (Dotted 1/8)</option>
+                           </select>
+                        </div>
+                     )}
+                     <input type="range" min="0" max="1" step="0.01" value={pingPongLevel} onChange={(e) => setPingPongLevel(parseFloat(e.target.value))} />
+                  </div>
                </Card>
                <Card title="Analog Tape Delay" valueLabel={`${Math.round(tapeDelayLevel * 100)}%`} accentColor={currentTheme.rgb}>
-                  <input type="range" min="0" max="1" step="0.01" value={tapeDelayLevel} onChange={(e) => setTapeDelayLevel(parseFloat(e.target.value))} />
+                  <div className="flex flex-col gap-2 mt-1">
+                     {bpmSyncEnabled && (
+                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold mb-1">
+                           <span>SYNC RATE</span>
+                           <select 
+                              value={delaySyncDivision} 
+                              disabled
+                              className="bg-zinc-900/50 text-zinc-500 border border-zinc-800 rounded px-2 py-0.5 outline-none font-mono text-[10px]">
+                              <option value={delaySyncDivision}>{delaySyncDivision === '3/8' ? '3/8 (Dotted)' : delaySyncDivision + ' (Synced)'}</option>
+                           </select>
+                        </div>
+                     )}
+                     <input type="range" min="0" max="1" step="0.01" value={tapeDelayLevel} onChange={(e) => setTapeDelayLevel(parseFloat(e.target.value))} />
+                  </div>
                </Card>
                <Card title="Aphex Phaser" valueLabel={`${Math.round(phaserFactor * 100)}%`} accentColor={currentTheme.rgb}>
                   <input type="range" min="0" max="1" step="0.01" value={phaserFactor} onChange={(e) => setPhaserFactor(parseFloat(e.target.value))} />
@@ -215,7 +335,22 @@ export function FXRack({
                   <input type="range" min="0" max="1" step="0.01" value={ringModFactor} onChange={(e) => setRingModFactor(parseFloat(e.target.value))} />
                </Card>
                <Card title="Sidechain Pumper" valueLabel={`${Math.round(sidechainFactor * 100)}%`} accentColor={currentTheme.rgb}>
-                  <input type="range" min="0" max="1" step="0.01" value={sidechainFactor} onChange={(e) => setSidechainFactor(parseFloat(e.target.value))} />
+                  <div className="flex flex-col gap-2 mt-1">
+                     {bpmSyncEnabled && (
+                        <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold mb-1">
+                           <span>SYNC RATE</span>
+                           <select 
+                              value={sidechainSyncDivision} 
+                              onChange={(e) => setSidechainSyncDivision(e.target.value)}
+                              className="bg-zinc-900 text-white border border-zinc-800 rounded px-2 py-0.5 outline-none font-mono text-[10px]">
+                              <option value="1/2">1/2 (Half)</option>
+                              <option value="1/4">1/4 (Beat)</option>
+                              <option value="1/8">1/8 (Eighth)</option>
+                           </select>
+                        </div>
+                     )}
+                     <input type="range" min="0" max="1" step="0.01" value={sidechainFactor} onChange={(e) => setSidechainFactor(parseFloat(e.target.value))} />
+                  </div>
                </Card>
                <Card title="Auto-Wah Sweep" valueLabel={`${Math.round(autoWahFactor * 100)}%`} accentColor={currentTheme.rgb}>
                   <input type="range" min="0" max="1" step="0.01" value={autoWahFactor} onChange={(e) => setAutoWahFactor(parseFloat(e.target.value))} />

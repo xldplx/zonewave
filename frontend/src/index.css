@@ -1,52 +1,33 @@
 @import "tailwindcss";
 
 :root {
-  --color-primary: #a855f7; /* Cyber Retro Purple */
-  --color-track: #1e1e24;  /* Deep Zinc-900 */
+  --color-primary: #ffffff;
+  --color-track: #18181b;
 }
 
 body {
-  background-color: #060608;
-  color: #fff;
-  background-image: 
-    radial-gradient(at 50% 0%, rgba(168, 85, 247, 0.18) 0px, transparent 65%),
-    radial-gradient(at 0% 100%, rgba(6, 182, 212, 0.1) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(236, 72, 153, 0.08) 0px, transparent 50%);
-  background-attachment: fixed;
+  background-color: #000000;
+  color: #ffffff;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 * {
-  font-family: "Outfit", "JetBrains Mono", monospace;
-  letter-spacing: 0.05em;
+  font-family: "Outfit", "JetBrains Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
 }
 
-/* Premium Neon Glows */
-.glow-cyber {
-  box-shadow: 0 0 20px rgba(168, 85, 247, 0.35);
-}
-.text-glow-cyber {
-  text-shadow: 0 0 12px rgba(168, 85, 247, 0.65);
-}
-.text-glow-cyan {
-  text-shadow: 0 0 12px rgba(6, 182, 212, 0.65);
-}
-.glow-green {
-  box-shadow: 0 0 15px rgba(52, 211, 153, 0.35);
-}
-
-/* Base Terminal Styling */
+/* Base Utility & Selection */
 ::selection {
   background: #ffffff;
-  color: #000;
+  color: #000000;
 }
 
-/* Custom Minimalist Sliders */
+/* Monochrome Custom Sliders */
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 28px;
+  height: 24px;
   background: transparent;
   cursor: pointer;
   margin: 0;
@@ -58,80 +39,61 @@ input[type="range"]:focus {
 
 input[type="range"]::-webkit-slider-runnable-track {
   width: 100%;
-  height: 6px;
-  background: var(--color-track); /* zinc-800 */
-  border-radius: 3px;
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.8);
-  transition: all 0.2s ease;
+  height: 4px;
+  background: #18181b;
+  border-radius: 2px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.9);
+  transition: background 0.15s ease;
+}
+
+input[type="range"]:hover::-webkit-slider-runnable-track {
+  background: #27272a;
 }
 
 input[type="range"]::-webkit-slider-thumb {
-  height: 28px;
-  width: 16px;
-  border-radius: 4px;
-  background: var(--color-primary);
+  height: 18px;
+  width: 12px;
+  border-radius: 3px;
+  background: #ffffff;
   -webkit-appearance: none;
   appearance: none;
-  margin-top: -11px;
-  box-shadow: 0 0 8px var(--color-primary-shadow, rgba(168, 85, 247, 0.6));
-  transition: all 0.1s ease-out;
-  cursor: pointer;
+  margin-top: -7px;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+  transition: transform 0.1s ease-out, background 0.1s ease;
+  cursor: grab;
 }
 
-input[type="range"]::-webkit-slider-thumb:hover,
 input[type="range"]:active::-webkit-slider-thumb {
-  transform: scaleY(1.3) scaleX(1.5);
-  box-shadow: 0 0 15px var(--color-primary-shadow-hover, rgba(168, 85, 247, 0.95));
+  cursor: grabbing;
+  transform: scale(1.15);
+  background: #ffffff;
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.6);
 }
 
 input[type="range"]::-moz-range-track {
   width: 100%;
-  height: 6px;
-  background: var(--color-track);
+  height: 4px;
+  background: #18181b;
+  border-radius: 2px;
 }
 
 input[type="range"]::-moz-range-thumb {
-  height: 28px;
-  width: 16px;
-  border-radius: 4px;
-  background: var(--color-primary);
+  height: 18px;
+  width: 12px;
+  border-radius: 3px;
+  background: #ffffff;
   border: none;
-  box-shadow: 0 0 8px var(--color-primary-shadow, rgba(168, 85, 247, 0.6));
-  cursor: pointer;
-}
-
-input[type="range"]::-moz-range-thumb:hover,
-input[type="range"]:active::-moz-range-thumb {
-  transform: scaleY(1.3) scaleX(1.5);
-  box-shadow: 0 0 15px var(--color-primary-shadow-hover, rgba(168, 85, 247, 0.95));
-}
-
-@keyframes pulse-metronome {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 8px rgba(6, 182, 212, 0.3);
-    border-color: rgba(6, 182, 212, 0.4);
-    background-color: transparent;
-  }
-  50% {
-    transform: scale(1.15);
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.85);
-    border-color: rgba(6, 182, 212, 1);
-    background-color: rgba(6, 182, 212, 0.25);
-  }
-}
-
-.metronome-pulse {
-  animation: pulse-metronome var(--metronome-dur, 0.5s) infinite ease-in-out;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+  cursor: grab;
 }
 
 /* Custom WaveSurfer Handle UI overrides */
 ::part(region-handle-right),
 ::part(region-handle-left) {
-  width: 14px !important;
-  background-color: rgba(255, 255, 255, 0.9) !important;
+  width: 12px !important;
+  background-color: #ffffff !important;
   border-radius: 2px !important;
-  box-shadow: 0 0 5px rgba(255,255,255,0.4) !important;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -141,9 +103,28 @@ input[type="range"]:active::-moz-range-thumb {
 ::part(region-handle-right)::after,
 ::part(region-handle-left)::after {
   content: "||";
-  color: #000;
+  color: #000000;
   font-size: 8px;
-  font-weight: bold;
+  font-weight: 900;
   pointer-events: none;
-  opacity: 0.8;
+  letter-spacing: -1px;
+}
+
+/* Precision Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
 }

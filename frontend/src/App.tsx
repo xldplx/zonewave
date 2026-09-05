@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { FaPlay, FaPause, FaStop, FaDice, FaVolumeUp, FaSyncAlt } from "react-icons/fa";
 
 // Hooks
@@ -7,10 +7,13 @@ import { useAudioGraph } from "./hooks/useAudioGraph";
 import { useWaveSurfer } from "./hooks/useWaveSurfer";
 import { useFFmpegExport } from "./hooks/useFFmpegExport";
 
-// Components
+// Components & Constants
 import { FXRack } from "./components/FXRack";
 import { MediaDropzones } from "./components/MediaDropzones";
 import { ProcessingOverlay } from "./components/ProcessingOverlay";
+import { AudioVisualizer } from "./components/AudioVisualizer";
+import { PresetBar } from "./components/PresetBar";
+import type { Preset } from "./constants/presets";
 
 export default function App() {
   // Time & Modulation
@@ -60,9 +63,13 @@ export default function App() {
 
   // Video output state
   const [videoNoir, setVideoNoir] = useState(false);
-
-  // File output state
   const [outputName, setOutputName] = useState("");
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+
+  // Pitch & A/B Bypass states
+  const [isBypassed, setIsBypassed] = useState(false);
+  const [pitchSemitones, setPitchSemitones] = useState(0);
+  const [preservePitch, setPreservePitch] = useState(false);
 
   const [isTapeStopping, setIsTapeStopping] = useState(false);
   const tapeStopAnimRef = useRef<number | null>(null);
@@ -74,14 +81,15 @@ export default function App() {
   // Modular hooks
   const { musicFile, imageFile, musicUrl, imageUrl, onMusicDrop, onImageDrop } = useMediaManager();
   
-  const { initWebAudio, resumeContext } = useAudioGraph({
-      audioRef, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, masterVolume,
-      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch,
-      bpm, bpmSyncEnabled, tremoloSyncDivision, delaySyncDivision, sidechainSyncDivision
+  const { initWebAudio, resumeContext, analyserRef } = useAudioGraph({
+    audioRef, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, masterVolume,
+    pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch,
+    bpm, bpmSyncEnabled, tremoloSyncDivision, delaySyncDivision, sidechainSyncDivision,
+    isBypassed, pitchSemitones, preservePitch
   });
 
   const { isPlaying, trimStart, trimEnd, currentTime, duration, togglePlayback, stopPlayback, updateTrimRegion } = useWaveSurfer({
-      waveformContainerRef, audioRef, musicUrl, enableLoop: isLooping, initWebAudio
+    waveformContainerRef, audioRef, musicUrl, enableLoop: isLooping, initWebAudio
   });
 
   const formatTime = (time: number) => {
@@ -92,38 +100,39 @@ export default function App() {
   };
 
   const { exportMedia, isExporting, progress, progressText } = useFFmpegExport({
-      musicFile, imageFile, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, trimStart, trimEnd,
-      pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, videoNoir, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch,
-      bpm, bpmSyncEnabled, tremoloSyncDivision, delaySyncDivision, sidechainSyncDivision,
-      onExportComplete: resumeContext
+    musicFile, imageFile, rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled, bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor, trimStart, trimEnd,
+    pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel, subBassFactor, autoWahFactor, videoNoir, megaphoneFactor, tapeDelayLevel, fuzzFactor, lofiSampleRate, haasDelayFactor, dynamicPunch,
+    bpm, bpmSyncEnabled, tremoloSyncDivision, delaySyncDivision, sidechainSyncDivision,
+    pitchSemitones, preservePitch,
+    onExportComplete: resumeContext
   });
 
   const lastMusicFileRef = useRef<File | null>(null);
 
   useEffect(() => {
     if (musicFile && musicFile !== lastMusicFileRef.current) {
-        lastMusicFileRef.current = musicFile;
-        setOutputName(musicFile.name.replace(/\.[^/.]+$/, "") + " (zonewave mix)");
-        setIsTapeStopping(false);
-        if (tapeStopAnimRef.current) cancelAnimationFrame(tapeStopAnimRef.current);
+      lastMusicFileRef.current = musicFile;
+      setOutputName(musicFile.name.replace(/\.[^/.]+$/, "") + " (zonewave mix)");
+      setIsTapeStopping(false);
+      if (tapeStopAnimRef.current) cancelAnimationFrame(tapeStopAnimRef.current);
     }
   }, [musicFile]);
 
-  const toggleTapeStop = () => {
+  const toggleTapeStop = useCallback(() => {
     if (!audioRef.current) return;
     if (!isTapeStopping) {
       setIsTapeStopping(true);
       let currentRate = audioRef.current.playbackRate;
       const decay = () => {
-          if (!audioRef.current) return;
-          currentRate *= 0.85; 
-          audioRef.current.playbackRate = currentRate;
-          if (currentRate < 0.05) {
-              audioRef.current.playbackRate = 0;
-              stopPlayback();
-          } else {
-              tapeStopAnimRef.current = requestAnimationFrame(decay);
-          }
+        if (!audioRef.current) return;
+        currentRate *= 0.85; 
+        audioRef.current.playbackRate = currentRate;
+        if (currentRate < 0.05) {
+          audioRef.current.playbackRate = 0;
+          stopPlayback();
+        } else {
+          tapeStopAnimRef.current = requestAnimationFrame(decay);
+        }
       };
       tapeStopAnimRef.current = requestAnimationFrame(decay);
     } else {
@@ -132,9 +141,45 @@ export default function App() {
       audioRef.current.playbackRate = rate; 
       if (!isPlaying) togglePlayback();
     }
+  }, [isTapeStopping, isPlaying, rate, stopPlayback, togglePlayback]);
+
+  // Preset Applicator
+  const applyPreset = (preset: Preset) => {
+    setActivePresetId(preset.id);
+    const v = preset.values;
+    setRate(v.rate ?? 1.0);
+    setVibratoDepth(v.vibratoDepth ?? 0);
+    setTremoloDepth(v.tremoloDepth ?? 0);
+    setReverbMode(v.reverbMode ?? 0);
+    setAmbienceLevel(v.ambienceLevel ?? 0);
+    setEnable8D(v.enable8D ?? false);
+    setChorusEnabled(v.chorusEnabled ?? false);
+    setBassGain(v.bassGain ?? 0);
+    setMuffleFactor(v.muffleFactor ?? 0);
+    setHighpassFactor(v.highpassFactor ?? 0);
+    setBitcrushFactor(v.bitcrushFactor ?? 0);
+    setOverdriveFactor(v.overdriveFactor ?? 0);
+    setFlangerFactor(v.flangerFactor ?? 0);
+    setPingPongLevel(v.pingPongLevel ?? 0);
+    setRingModFactor(v.ringModFactor ?? 0);
+    setPhaserFactor(v.phaserFactor ?? 0);
+    setSidechainFactor(v.sidechainFactor ?? 0);
+    setVinylCrackleLevel(v.vinylCrackleLevel ?? 0);
+    setSubBassFactor(v.subBassFactor ?? 0);
+    setAutoWahFactor(v.autoWahFactor ?? 0);
+    setMegaphoneFactor(v.megaphoneFactor ?? 0);
+    setTapeDelayLevel(v.tapeDelayLevel ?? 0);
+    setFuzzFactor(v.fuzzFactor ?? 0);
+    setLofiSampleRate(v.lofiSampleRate ?? 0);
+    setHaasDelayFactor(v.haasDelayFactor ?? 0);
+    setDynamicPunch(v.dynamicPunch ?? 0);
+    setPitchSemitones(0);
+    setPreservePitch(false);
+    setIsBypassed(false);
   };
 
-  const randomizeFX = () => {
+  const randomizeFX = useCallback(() => {
+    setActivePresetId(null);
     setRate(parseFloat((0.8 + Math.random() * 0.4).toFixed(2))); 
     setVibratoDepth(Math.random() > 0.5 ? parseFloat((Math.random() * 0.8).toFixed(2)) : 0);
     setTremoloDepth(Math.random() > 0.7 ? parseFloat((Math.random() * 0.8).toFixed(2)) : 0);
@@ -161,168 +206,376 @@ export default function App() {
     setLofiSampleRate(Math.random() > 0.8 ? parseFloat(Math.random().toFixed(2)) : 0);
     setHaasDelayFactor(Math.random() > 0.6 ? parseFloat(Math.random().toFixed(2)) : 0);
     setDynamicPunch(Math.random() > 0.6 ? parseFloat(Math.random().toFixed(2)) : 0);
-  };
+  }, []);
+
+  // Calculate active FX count for telemetry
+  const activeFxCount = useMemo(() => {
+    let count = 0;
+    if (rate !== 1.0) count++;
+    if (vibratoDepth > 0) count++;
+    if (tremoloDepth > 0) count++;
+    if (reverbMode > 0) count++;
+    if (ambienceLevel > 0) count++;
+    if (enable8D) count++;
+    if (chorusEnabled) count++;
+    if (bassGain > 0) count++;
+    if (muffleFactor > 0) count++;
+    if (highpassFactor > 0) count++;
+    if (bitcrushFactor > 0) count++;
+    if (overdriveFactor > 0) count++;
+    if (flangerFactor > 0) count++;
+    if (pingPongLevel > 0) count++;
+    if (ringModFactor > 0) count++;
+    if (phaserFactor > 0) count++;
+    if (sidechainFactor > 0) count++;
+    if (vinylCrackleLevel > 0) count++;
+    if (subBassFactor > 0) count++;
+    if (autoWahFactor > 0) count++;
+    if (megaphoneFactor > 0) count++;
+    if (tapeDelayLevel > 0) count++;
+    if (fuzzFactor > 0) count++;
+    if (lofiSampleRate > 0) count++;
+    if (haasDelayFactor > 0) count++;
+    if (dynamicPunch > 0) count++;
+    if (pitchSemitones !== 0) count++;
+    if (preservePitch) count++;
+    return count;
+  }, [
+    rate, vibratoDepth, tremoloDepth, reverbMode, ambienceLevel, enable8D, chorusEnabled,
+    bassGain, muffleFactor, highpassFactor, bitcrushFactor, overdriveFactor, flangerFactor,
+    pingPongLevel, ringModFactor, phaserFactor, sidechainFactor, vinylCrackleLevel,
+    subBassFactor, autoWahFactor, megaphoneFactor, tapeDelayLevel, fuzzFactor,
+    lofiSampleRate, haasDelayFactor, dynamicPunch, pitchSemitones, preservePitch
+  ]);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if typing in text inputs
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) {
+        return;
+      }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        initWebAudio();
+        resumeContext();
+        togglePlayback();
+      } else if (e.key === 'r' || e.key === 'R') {
+        randomizeFX();
+      } else if (e.key === 'l' || e.key === 'L') {
+        setIsLooping((prev) => !prev);
+      } else if (e.key === 't' || e.key === 'T') {
+        toggleTapeStop();
+      } else if (e.key === 'b' || e.key === 'B') {
+        setIsBypassed((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [initWebAudio, resumeContext, togglePlayback, randomizeFX, toggleTapeStop]);
 
   return (
-    <section className={`min-h-screen py-10 flex flex-col gap-[2rem] ${musicUrl ? 'justify-start' : 'justify-center'} items-center bg-black text-white px-4 font-sans tracking-widest relative overflow-x-hidden`}>
+    <main className={`min-h-screen flex flex-col items-center bg-black text-white px-4 font-sans selection:bg-white selection:text-black relative ${!musicUrl ? 'justify-center py-12' : 'justify-start py-8'}`}>
+      {/* Background artwork blur overlay if uploaded */}
       {imageUrl && (
         <div 
-          className="fixed inset-0 opacity-[0.15] pointer-events-none bg-cover bg-center z-0 transition-opacity duration-1000" 
-          style={{ backgroundImage: `url(${imageUrl})`, filter: 'blur(20px)' }}
+          className="fixed inset-0 opacity-10 pointer-events-none bg-cover bg-center z-0 transition-opacity duration-1000" 
+          style={{ backgroundImage: `url(${imageUrl})`, filter: 'blur(30px)' }}
         />
       )}
-      
-      <div className="flex flex-col justify-center items-center text-center mt-10 z-10 w-full select-none">
-        <h1 className="text-[3.5rem] md:text-[4.5rem] tracking-[0.25em] font-extrabold uppercase bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-400 to-cyan-400 drop-shadow-[0_0_20px_rgba(168,85,247,0.35)]">zonewave.</h1>
-        <h1 className="text-[0.75rem] md:text-[0.9rem] uppercase tracking-[0.4em] font-bold text-cyan-400 text-glow-cyan mt-1">the ultimate audio aesthetic suite</h1>
-      </div>
 
-      <div className="flex flex-col gap-[2rem] items-center justify-center max-w-5xl w-full relative z-10">
-        <MediaDropzones 
-           musicFile={musicFile} imageFile={imageFile} 
-           onMusicDrop={onMusicDrop} onImageDrop={onImageDrop} 
-        />
+      {!musicUrl ? (
+        <div className="flex flex-col items-center justify-center w-full max-w-3xl text-center z-10">
+          <h1 className="text-4xl md:text-6xl tracking-[0.25em] font-black uppercase text-white font-mono">
+            ZONEWAVE
+          </h1>
+          <p className="text-[11px] font-mono tracking-widest text-zinc-500 uppercase mt-2 mb-8">
+            Audio remix studio
+          </p>
 
-        {/* Waveform Module */}
-        <div className={`w-full transition-all duration-700 ${musicUrl ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none hidden'}`}>
-           <div className="w-full bg-zinc-900/60 p-6 rounded-xl border border-zinc-800 backdrop-blur-md shadow-2xl flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <button onClick={() => { initWebAudio(); resumeContext(); togglePlayback(); }} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                       {isPlaying ? <FaPause size={18} /> : <FaPlay size={18} className="translate-x-[2px]" />}
-                    </button>
-                    <button onClick={stopPlayback} className="bg-zinc-800 text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-zinc-700 transition-colors">
-                       <FaStop size={14} />
-                    </button>
-                    <button 
-                       onClick={toggleTapeStop} 
-                       className={`px-3 h-10 rounded-full flex items-center tracking-widest text-[9px] justify-center transition-colors font-bold ${isTapeStopping ? 'bg-red-600 text-white animate-pulse' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
-                       TAPE STOP
-                    </button>
-                    <button onClick={() => setIsLooping(!isLooping)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isLooping ? 'bg-white text-black shadow-[0_0_10px_rgba(255,255,255,0.4)]' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>
-                       <FaSyncAlt size={14} />
-                    </button>
+          <div className="w-full">
+            <MediaDropzones 
+              musicFile={musicFile} 
+              imageFile={imageFile} 
+              onMusicDrop={onMusicDrop} 
+              onImageDrop={onImageDrop} 
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Workstation Header */}
+          <header className="flex items-center justify-between w-full max-w-5xl select-none border-b border-zinc-900 pb-4 mb-6 z-10">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl tracking-[0.2em] font-black uppercase text-white font-mono">
+                ZONEWAVE
+              </h1>
+              <span className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase hidden sm:inline">
+                remix studio
+              </span>
+            </div>
 
-                    {bpmSyncEnabled && (
-                        <div 
-                           className={`w-3.5 h-3.5 rounded-full border border-cyan-500/40 flex-shrink-0 transition-all ${isPlaying ? 'metronome-pulse' : ''}`}
-                           style={{ '--metronome-dur': `${60 / bpm}s` } as React.CSSProperties}
-                           title={`BPM: ${bpm}`}
-                        />
-                     )}
-                     
-                     <div className="font-mono text-[10px] md:text-xs tracking-widest bg-zinc-950 px-3.5 h-10 rounded-full border border-zinc-800 text-zinc-400 flex items-center gap-2 select-none shadow-[inset_0_0_8px_rgba(0,0,0,0.8)]">
-                       <span className="text-emerald-400 font-bold drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">{formatTime(currentTime / rate)}</span>
-                       <span className="text-zinc-600 font-bold">/</span>
-                       <span className="text-zinc-500">{formatTime(duration / rate)}</span>
-                     </div>
-                </div>
+            <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-widest text-zinc-400">
+              <span className="bg-zinc-950 px-2.5 py-1 rounded border border-zinc-900">
+                Active FX: <strong className="text-white">{activeFxCount}</strong>
+              </span>
+              {bpmSyncEnabled && (
+                <span className="bg-zinc-950 px-2.5 py-1 rounded border border-zinc-900 text-zinc-300">
+                  {bpm} BPM
+                </span>
+              )}
+            </div>
+          </header>
 
-                <div className="flex items-center gap-3 bg-zinc-800/50 px-4 py-2 rounded-lg border border-zinc-700 flex-1 min-w-[150px] max-w-[200px]">
-                    <FaVolumeUp className="text-zinc-400" size={14} />
-                    <input 
-                       type="range" min="0" max="1" step="0.01" 
-                       value={masterVolume} 
-                       onChange={(e) => setMasterVolume(parseFloat(e.target.value))} 
-                       className="w-full relative top-[1px]" 
-                    />
-                </div>
+          {/* Main Workstation Container */}
+          <div className="flex flex-col gap-5 items-center justify-center max-w-5xl w-full relative z-10">
+            
+            {/* Media Upload Dropzones */}
+            <MediaDropzones 
+              musicFile={musicFile} 
+              imageFile={imageFile} 
+              onMusicDrop={onMusicDrop} 
+              onImageDrop={onImageDrop} 
+            />
 
-                <div className="flex flex-col items-end gap-1">
-                   <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Trim Region</p>
-                   <div className="flex items-center gap-2">
-                       <input type="number" step="0.1" value={Number(trimStart.toFixed(2))} onChange={e => updateTrimRegion(parseFloat(e.target.value), trimEnd)} className="bg-zinc-800 text-white font-mono text-xs w-[80px] px-1 py-1 outline-none text-center rounded border border-zinc-700 hover:border-zinc-500 focus:border-white transition-colors" />
-                       <span className="text-zinc-600">-</span> 
-                       <input type="number" step="0.1" value={Number(trimEnd.toFixed(2))} onChange={e => updateTrimRegion(trimStart, parseFloat(e.target.value))} className="bg-zinc-800 text-white font-mono text-xs w-[80px] px-1 py-1 outline-none text-center rounded border border-zinc-700 hover:border-zinc-500 focus:border-white transition-colors" />
-                   </div>
+            {/* Waveform & Hardware Transport Module */}
+            <div className="w-full bg-[#09090b] p-5 rounded-xl border border-zinc-800/80 shadow-2xl flex flex-col gap-4 transition-all">
+            
+            {/* Real-time Spectrum Visualizer */}
+            <AudioVisualizer analyserRef={analyserRef} isPlaying={isPlaying} />
+
+            {/* Transport Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-2.5">
+                <button 
+                  onClick={() => { initWebAudio(); resumeContext(); togglePlayback(); }} 
+                  title="Play / Pause (Space)"
+                  className="bg-white text-black w-11 h-11 rounded-lg flex items-center justify-center hover:bg-zinc-200 active:scale-95 transition-all shadow-[0_0_15px_rgba(255,255,255,0.15)]"
+                >
+                  {isPlaying ? <FaPause size={15} /> : <FaPlay size={15} className="translate-x-[1px]" />}
+                </button>
+
+                <button 
+                  onClick={stopPlayback} 
+                  title="Stop"
+                  className="bg-zinc-900 text-zinc-400 hover:text-white w-9 h-9 rounded-lg flex items-center justify-center border border-zinc-800 hover:border-zinc-600 transition-colors"
+                >
+                  <FaStop size={12} />
+                </button>
+
+                <button 
+                  onClick={toggleTapeStop} 
+                  title="Tape Stop Effect (T)"
+                  className={`px-3 h-9 rounded-lg flex items-center tracking-widest text-[9px] font-mono font-bold justify-center transition-all border ${
+                    isTapeStopping 
+                      ? 'bg-white text-black border-white animate-pulse shadow-[0_0_12px_rgba(255,255,255,0.4)]' 
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-600 hover:text-white'
+                  }`}
+                >
+                  TAPE STOP
+                </button>
+
+                <button 
+                  onClick={() => setIsLooping(!isLooping)} 
+                  title="Toggle Loop (L)"
+                  className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors border ${
+                    isLooping 
+                      ? 'bg-zinc-200 text-black border-zinc-200' 
+                      : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-white'
+                  }`}
+                >
+                  <FaSyncAlt size={12} />
+                </button>
+
+                {/* A/B Bypass Button */}
+                <button 
+                  onClick={() => setIsBypassed(!isBypassed)} 
+                  title="A/B Bypass (B) - Toggle between raw track and processed mix"
+                  className={`px-3 h-9 rounded-lg flex items-center tracking-widest text-[9px] font-mono font-bold justify-center transition-all border ${
+                    isBypassed 
+                      ? 'bg-amber-400 text-black border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.35)]' 
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-600 hover:text-white'
+                  }`}
+                >
+                  {isBypassed ? "BYPASS ON" : "BYPASS (B)"}
+                </button>
+
+                {bpmSyncEnabled && (
+                  <div 
+                    className={`w-3 h-3 rounded-full border border-white flex-shrink-0 transition-all ${isPlaying ? 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'bg-transparent'}`}
+                    style={{ animationDuration: `${60 / bpm}s` }}
+                    title={`BPM Metronome: ${bpm}`}
+                  />
+                )}
+                
+                {/* Time Clock Display */}
+                <div className="font-mono text-[11px] tracking-widest bg-black px-3.5 h-9 rounded-lg border border-zinc-800 text-zinc-400 flex items-center gap-2 select-none">
+                  <span className="text-white font-bold">{formatTime(currentTime / rate)}</span>
+                  <span className="text-zinc-600 font-bold">/</span>
+                  <span className="text-zinc-500">{formatTime(duration / rate)}</span>
                 </div>
               </div>
-              
-              <audio ref={audioRef} loop={isLooping} hidden />
-              <div ref={waveformContainerRef} className="w-full relative z-0" />
-           </div>
-        </div>
 
-        <div className={`w-full transition-all duration-700 delay-100 ${musicUrl ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none hidden'}`}>
-            <FXRack 
-              rate={rate} setRate={setRate}
-              vibratoDepth={vibratoDepth} setVibratoDepth={setVibratoDepth}
-              tremoloDepth={tremoloDepth} setTremoloDepth={setTremoloDepth}
-              reverbMode={reverbMode} setReverbMode={setReverbMode}
-              ambienceLevel={ambienceLevel} setAmbienceLevel={setAmbienceLevel}
-              enable8D={enable8D} setEnable8D={setEnable8D}
-              chorusEnabled={chorusEnabled} setChorusEnabled={setChorusEnabled}
-              bassGain={bassGain} setBassGain={setBassGain}
-              muffleFactor={muffleFactor} setMuffleFactor={setMuffleFactor}
-              highpassFactor={highpassFactor} setHighpassFactor={setHighpassFactor}
-              bitcrushFactor={bitcrushFactor} setBitcrushFactor={setBitcrushFactor}
-              overdriveFactor={overdriveFactor} setOverdriveFactor={setOverdriveFactor}
-              flangerFactor={flangerFactor} setFlangerFactor={setFlangerFactor}
-              pingPongLevel={pingPongLevel} setPingPongLevel={setPingPongLevel}
-              ringModFactor={ringModFactor} setRingModFactor={setRingModFactor}
-              phaserFactor={phaserFactor} setPhaserFactor={setPhaserFactor}
-              sidechainFactor={sidechainFactor} setSidechainFactor={setSidechainFactor}
-              vinylCrackleLevel={vinylCrackleLevel} setVinylCrackleLevel={setVinylCrackleLevel}
-              subBassFactor={subBassFactor} setSubBassFactor={setSubBassFactor}
-              autoWahFactor={autoWahFactor} setAutoWahFactor={setAutoWahFactor}
-              megaphoneFactor={megaphoneFactor} setMegaphoneFactor={setMegaphoneFactor}
-              tapeDelayLevel={tapeDelayLevel} setTapeDelayLevel={setTapeDelayLevel}
-              fuzzFactor={fuzzFactor} setFuzzFactor={setFuzzFactor}
-              lofiSampleRate={lofiSampleRate} setLofiSampleRate={setLofiSampleRate}
-              haasDelayFactor={haasDelayFactor} setHaasDelayFactor={setHaasDelayFactor}
-              dynamicPunch={dynamicPunch} setDynamicPunch={setDynamicPunch}
-              bpm={bpm} setBpm={setBpm}
-              bpmSyncEnabled={bpmSyncEnabled} setBpmSyncEnabled={setBpmSyncEnabled}
-              tremoloSyncDivision={tremoloSyncDivision} setTremoloSyncDivision={setTremoloSyncDivision}
-              delaySyncDivision={delaySyncDivision} setDelaySyncDivision={setDelaySyncDivision}
-              sidechainSyncDivision={sidechainSyncDivision} setSidechainSyncDivision={setSidechainSyncDivision}
-           />
-        </div>
+              {/* Master Volume */}
+              <div className="flex items-center gap-2.5 bg-black px-3 py-1.5 rounded-lg border border-zinc-800 min-w-[140px] max-w-[180px]">
+                <FaVolumeUp className="text-zinc-500" size={12} />
+                <input 
+                  type="range" min="0" max="1" step="0.01" 
+                  value={masterVolume} 
+                  onChange={(e) => setMasterVolume(parseFloat(e.target.value))} 
+                  className="w-full" 
+                />
+              </div>
 
-        <ProcessingOverlay isExporting={isExporting} progress={progress} progressText={progressText} />
-
-        {/* Export Suite */}
-        <div className={`flex flex-col gap-6 w-full mt-4 transition-all duration-700 delay-200 ${musicUrl ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none hidden'}`}>
-          
-          <div className="flex justify-between items-end w-full px-2 gap-4">
-            <div className="flex flex-col gap-1 flex-1 relative">
-               <label className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase">Output Filename</label>
-               <input type="text" value={outputName} onChange={e => setOutputName(e.target.value)} placeholder="Export Filename" className="bg-transparent border-b border-zinc-700 focus:border-white transition-colors outline-none font-mono text-xl text-white py-1 w-full pr-8" />
-               {outputName && (
-                  <button onClick={() => setOutputName("")} className="absolute right-0 bottom-2 text-zinc-500 hover:text-white transition-colors font-mono text-sm leading-none bg-zinc-800 rounded-full w-[22px] h-[22px] flex items-center justify-center pb-[2px]">×</button>
-               )}
+              {/* Trim Region Input Controls */}
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-mono text-zinc-500 font-bold uppercase">TRIM</span>
+                <input 
+                  type="number" step="0.1" 
+                  value={Number(trimStart.toFixed(2))} 
+                  onChange={e => updateTrimRegion(parseFloat(e.target.value), trimEnd)} 
+                  className="bg-black text-white font-mono text-[10px] w-[65px] px-1 py-1 outline-none text-center rounded border border-zinc-800 hover:border-zinc-600 focus:border-white transition-colors" 
+                />
+                <span className="text-zinc-600 text-xs font-mono">-</span> 
+                <input 
+                  type="number" step="0.1" 
+                  value={Number(trimEnd.toFixed(2))} 
+                  onChange={e => updateTrimRegion(trimStart, parseFloat(e.target.value))} 
+                  className="bg-black text-white font-mono text-[10px] w-[65px] px-1 py-1 outline-none text-center rounded border border-zinc-800 hover:border-zinc-600 focus:border-white transition-colors" 
+                />
+              </div>
             </div>
-            <button onClick={randomizeFX} className="bg-zinc-800 hover:bg-white hover:text-black transition-colors px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg mb-1 border border-zinc-700 border-b-2 flex-shrink-0">
-                <FaDice size={16} /> <span className="hidden md:inline">RANDOMIZE VIBE</span>
-            </button>
+            
+            {/* WaveSurfer waveform visualizer element */}
+            <audio ref={audioRef} loop={isLooping} hidden />
+            <div ref={waveformContainerRef} className="w-full rounded bg-black/50 p-1 border border-zinc-900" />
           </div>
 
-          <div className="flex flex-wrap gap-[1rem] justify-center w-full">
-            <button 
-              disabled={!musicFile || isExporting || !outputName}
-              onClick={() => exportMedia('mp3', outputName)}
-              className="flex-1 min-w-[200px] bg-zinc-800 p-[1.5rem] rounded-xl hover:bg-white hover:text-black transition-colors font-bold text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed border border-transparent hover:border-zinc-300 shadow-xl">
-              Export as Audio (.mp3)
-            </button>
-            <div className="flex-[2] min-w-[300px] flex gap-2">
+          {/* Preset Selector Bar */}
+          <PresetBar 
+            activePresetId={activePresetId} 
+            onSelectPreset={applyPreset} 
+          />
+
+          {/* Modular FX Rack */}
+          <FXRack 
+            rate={rate} setRate={(v) => { setActivePresetId(null); setRate(v); }}
+            vibratoDepth={vibratoDepth} setVibratoDepth={(v) => { setActivePresetId(null); setVibratoDepth(v); }}
+            tremoloDepth={tremoloDepth} setTremoloDepth={(v) => { setActivePresetId(null); setTremoloDepth(v); }}
+            reverbMode={reverbMode} setReverbMode={(v) => { setActivePresetId(null); setReverbMode(v); }}
+            ambienceLevel={ambienceLevel} setAmbienceLevel={(v) => { setActivePresetId(null); setAmbienceLevel(v); }}
+            enable8D={enable8D} setEnable8D={(v) => { setActivePresetId(null); setEnable8D(v); }}
+            chorusEnabled={chorusEnabled} setChorusEnabled={(v) => { setActivePresetId(null); setChorusEnabled(v); }}
+            bassGain={bassGain} setBassGain={(v) => { setActivePresetId(null); setBassGain(v); }}
+            muffleFactor={muffleFactor} setMuffleFactor={(v) => { setActivePresetId(null); setMuffleFactor(v); }}
+            highpassFactor={highpassFactor} setHighpassFactor={(v) => { setActivePresetId(null); setHighpassFactor(v); }}
+            bitcrushFactor={bitcrushFactor} setBitcrushFactor={(v) => { setActivePresetId(null); setBitcrushFactor(v); }}
+            overdriveFactor={overdriveFactor} setOverdriveFactor={(v) => { setActivePresetId(null); setOverdriveFactor(v); }}
+            flangerFactor={flangerFactor} setFlangerFactor={(v) => { setActivePresetId(null); setFlangerFactor(v); }}
+            pingPongLevel={pingPongLevel} setPingPongLevel={(v) => { setActivePresetId(null); setPingPongLevel(v); }}
+            ringModFactor={ringModFactor} setRingModFactor={(v) => { setActivePresetId(null); setRingModFactor(v); }}
+            phaserFactor={phaserFactor} setPhaserFactor={(v) => { setActivePresetId(null); setPhaserFactor(v); }}
+            sidechainFactor={sidechainFactor} setSidechainFactor={(v) => { setActivePresetId(null); setSidechainFactor(v); }}
+            vinylCrackleLevel={vinylCrackleLevel} setVinylCrackleLevel={(v) => { setActivePresetId(null); setVinylCrackleLevel(v); }}
+            subBassFactor={subBassFactor} setSubBassFactor={(v) => { setActivePresetId(null); setSubBassFactor(v); }}
+            autoWahFactor={autoWahFactor} setAutoWahFactor={(v) => { setActivePresetId(null); setAutoWahFactor(v); }}
+            megaphoneFactor={megaphoneFactor} setMegaphoneFactor={(v) => { setActivePresetId(null); setMegaphoneFactor(v); }}
+            tapeDelayLevel={tapeDelayLevel} setTapeDelayLevel={(v) => { setActivePresetId(null); setTapeDelayLevel(v); }}
+            fuzzFactor={fuzzFactor} setFuzzFactor={(v) => { setActivePresetId(null); setFuzzFactor(v); }}
+            lofiSampleRate={lofiSampleRate} setLofiSampleRate={(v) => { setActivePresetId(null); setLofiSampleRate(v); }}
+            haasDelayFactor={haasDelayFactor} setHaasDelayFactor={(v) => { setActivePresetId(null); setHaasDelayFactor(v); }}
+            dynamicPunch={dynamicPunch} setDynamicPunch={(v) => { setActivePresetId(null); setDynamicPunch(v); }}
+            bpm={bpm} setBpm={setBpm}
+            bpmSyncEnabled={bpmSyncEnabled} setBpmSyncEnabled={setBpmSyncEnabled}
+            tremoloSyncDivision={tremoloSyncDivision} setTremoloSyncDivision={setTremoloSyncDivision}
+            delaySyncDivision={delaySyncDivision} setDelaySyncDivision={setDelaySyncDivision}
+            sidechainSyncDivision={sidechainSyncDivision} setSidechainSyncDivision={setSidechainSyncDivision}
+            pitchSemitones={pitchSemitones} setPitchSemitones={(v) => { setActivePresetId(null); setPitchSemitones(v); }}
+            preservePitch={preservePitch} setPreservePitch={(v) => { setActivePresetId(null); setPreservePitch(v); }}
+          />
+
+          {/* Processing Spinner Overlay */}
+          <ProcessingOverlay isExporting={isExporting} progress={progress} progressText={progressText} />
+
+          {/* Export Section */}
+          <div className="flex flex-col gap-4 w-full mt-2 select-none bg-[#09090b] p-5 rounded-xl border border-zinc-800/80 shadow-xl">
+            <div className="flex justify-between items-end w-full gap-4">
+              <div className="flex flex-col gap-1 flex-1 relative">
+                <label className="text-[9px] font-mono text-zinc-400 font-bold tracking-[0.2em] uppercase">
+                  Output Filename
+                </label>
+                <input 
+                  type="text" 
+                  value={outputName} 
+                  onChange={e => setOutputName(e.target.value)} 
+                  placeholder="Filename without extension" 
+                  className="bg-black border border-zinc-800 focus:border-white px-3 py-2 rounded-lg transition-colors outline-none font-mono text-sm text-white w-full pr-8" 
+                />
+                {outputName && (
+                  <button 
+                    onClick={() => setOutputName("")} 
+                    className="absolute right-2 bottom-2 text-zinc-500 hover:text-white transition-colors font-mono text-xs bg-zinc-900 rounded px-1.5 py-0.5"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              
               <button 
-                disabled={!musicFile || !imageFile || isExporting || !outputName}
-                onClick={() => exportMedia('mp4', outputName)}
-                className="flex-[3] bg-white text-black p-[1.5rem] rounded-xl hover:bg-zinc-200 transition-colors font-bold text-xs uppercase disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_25px_rgba(255,255,255,0.3)]">
-                {imageFile ? "Export as Video (.mp4)" : "Add Artwork for Video"}
+                onClick={randomizeFX} 
+                title="Randomize Parameters (R)"
+                className="bg-zinc-900 hover:bg-white hover:text-black transition-all px-4 py-2.5 rounded-lg text-xs font-mono font-bold flex items-center gap-2 border border-zinc-700 hover:border-white flex-shrink-0"
+              >
+                <FaDice size={14} /> 
+                <span className="hidden md:inline uppercase tracking-wider">RANDOMIZE FX</span>
               </button>
-              
-              <button
-                disabled={!imageFile || isExporting}
-                onClick={() => setVideoNoir(!videoNoir)}
-                className={`flex-1 rounded-xl font-bold text-[10px] uppercase transition-all whitespace-normal border border-zinc-700 flex flex-col items-center justify-center gap-1 ${videoNoir ? 'bg-zinc-300 text-black border-zinc-300' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}>
-                {videoNoir ? <span className="w-2 h-2 rounded-full bg-black block mb-1"></span> : <span className="w-2 h-2 rounded-full bg-zinc-700 block mb-1"></span>}
-                Noir Filter
+            </div>
+
+            <div className="flex flex-wrap gap-3 justify-center w-full mt-2">
+              <button 
+                disabled={!musicFile || isExporting || !outputName}
+                onClick={() => exportMedia('mp3', outputName)}
+                className="flex-1 min-w-[150px] bg-zinc-900 border border-zinc-700 p-4 rounded-xl hover:bg-white hover:text-black transition-all font-mono font-bold text-xs uppercase tracking-widest disabled:opacity-30 disabled:cursor-not-allowed shadow-md"
+              >
+                Export MP3 (.mp3)
               </button>
+
+              <button 
+                disabled={!musicFile || isExporting || !outputName}
+                onClick={() => exportMedia('wav', outputName)}
+                className="flex-1 min-w-[150px] bg-zinc-900 border border-zinc-700 p-4 rounded-xl hover:bg-white hover:text-black transition-all font-mono font-bold text-xs uppercase tracking-widest disabled:opacity-30 disabled:cursor-not-allowed shadow-md"
+              >
+                Export WAV (.wav)
+              </button>
+
+              <div className="flex-[2] min-w-[280px] flex gap-2">
+                <button 
+                  disabled={!musicFile || !imageFile || isExporting || !outputName}
+                  onClick={() => exportMedia('mp4', outputName)}
+                  className="flex-[3] bg-white text-black border border-white p-4 rounded-xl hover:bg-zinc-200 transition-all font-mono font-bold text-xs uppercase tracking-widest disabled:opacity-30 disabled:cursor-not-allowed shadow-[0_0_15px_rgba(255,255,255,0.15)]"
+                >
+                  {imageFile ? "Export Video (.mp4)" : "Upload Artwork for Video"}
+                </button>
+                
+                <button
+                  disabled={!imageFile || isExporting}
+                  onClick={() => setVideoNoir(!videoNoir)}
+                  className={`flex-1 rounded-xl font-mono font-bold text-[9px] uppercase tracking-wider transition-all border flex flex-col items-center justify-center gap-1 ${
+                    videoNoir 
+                      ? 'bg-zinc-200 text-black border-zinc-200 font-black' 
+                      : 'bg-black text-zinc-500 border-zinc-800 hover:text-white hover:border-zinc-700'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${videoNoir ? 'bg-black' : 'bg-zinc-700'}`} />
+                  NOIR B&W
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </section>
-  );
+      </>
+    )}
+  </main>
+);
 }

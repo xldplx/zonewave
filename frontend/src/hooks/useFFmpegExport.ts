@@ -39,6 +39,8 @@ export function useFFmpegExport({
   tremoloSyncDivision,
   delaySyncDivision,
   sidechainSyncDivision,
+  pitchSemitones = 0,
+  preservePitch = false,
   onExportComplete
 }: {
   musicFile: File | null;
@@ -77,6 +79,8 @@ export function useFFmpegExport({
   tremoloSyncDivision: string;
   delaySyncDivision: string;
   sidechainSyncDivision: string;
+  pitchSemitones?: number;
+  preservePitch?: boolean;
   onExportComplete?: () => void;
 }) {
   const [isExporting, setIsExporting] = useState(false);
@@ -120,7 +124,7 @@ export function useFFmpegExport({
     document.body.removeChild(a);
   };
 
-  const exportMedia = async (type: 'mp3' | 'mp4', outputName: string) => {
+  const exportMedia = async (type: 'mp3' | 'wav' | 'mp4', outputName: string) => {
     if (!musicFile) return;
     setIsExporting(true);
     setProgress(0);
@@ -128,14 +132,33 @@ export function useFFmpegExport({
 
     try {
       const ffmpeg = await loadFfmpeg();
-      const audioName = "input.mp3";
+      const audioExt = musicFile.name.split('.').pop()?.toLowerCase() || 'mp3';
+      const audioName = `input.${audioExt}`;
       await ffmpeg.writeFile(audioName, await fetchFile(musicFile));
       
       const duration = trimEnd - trimStart;
       let renderDuration = duration / rate;
 
-      const rateInt = Math.round(44100 * rate);
+      // Calculate pitch and tempo ratios
+      const semitoneRatio = Math.pow(2, (pitchSemitones || 0) / 12);
+      const pitchRatio = preservePitch ? semitoneRatio : (rate * semitoneRatio);
+      const tempoRatio = rate / pitchRatio;
+
+      const rateInt = Math.round(44100 * pitchRatio);
       let audioFilter = `asetrate=${rateInt},aresample=44100`;
+
+      if (Math.abs(tempoRatio - 1.0) > 0.005) {
+        let t = tempoRatio;
+        while (t > 2.0) {
+          audioFilter += `,atempo=2.0`;
+          t /= 2.0;
+        }
+        while (t < 0.5) {
+          audioFilter += `,atempo=0.5`;
+          t /= 0.5;
+        }
+        audioFilter += `,atempo=${t.toFixed(4)}`;
+      }
 
       // Chain logic natively
       if (vibratoDepth > 0) {
@@ -344,8 +367,31 @@ export function useFFmpegExport({
         }
         
         const data = await ffmpeg.readFile('output.mp3');
-        const url = URL.createObjectURL(new Blob([data as any], { type: 'audio/mpeg' }));
+        const url = URL.createObjectURL(new Blob([data as BlobPart], { type: 'audio/mpeg' }));
         downloadFile(url, `${outputName || 'zonewave'}-processed.mp3`);
+      } else if (type === 'wav') {
+        setProgressText("Rendering Lossless WAV Audio...");
+        ffmpegLogRef.current = ""; 
+
+        const cleanFilterComplex = filterComplex.endsWith(';') ? filterComplex.slice(0, -1) : filterComplex;
+
+        const ret = await ffmpeg.exec([
+          '-ss', trimStart.toFixed(3),
+          '-t', duration.toFixed(3),
+          '-i', audioName,
+          '-filter_complex', cleanFilterComplex,
+          '-map', '[mixout]',
+          '-c:a', 'pcm_s16le',
+          'output.wav'
+        ]);
+
+        if (ret !== 0) {
+          throw new Error(`FFmpeg exited with code ${ret}.\n\nDetailed Log:\n${ffmpegLogRef.current}`);
+        }
+        
+        const data = await ffmpeg.readFile('output.wav');
+        const url = URL.createObjectURL(new Blob([data as BlobPart], { type: 'audio/wav' }));
+        downloadFile(url, `${outputName || 'zonewave'}-lossless.wav`);
       } else if (type === 'mp4') {
         const imageExt = imageFile ? imageFile.name.split('.').pop() : 'jpg';
         const imageName = `bg.${imageExt}`;
@@ -353,7 +399,7 @@ export function useFFmpegExport({
           await ffmpeg.writeFile(imageName, await fetchFile(imageFile));
         } else throw new Error("Background image required for MP4 export");
 
-        setProgressText("Rendering Cinematic Suite... (Static mode for maximum speed)");
+        setProgressText("Rendering video with background artwork...");
         
         ffmpegLogRef.current = ""; 
 
@@ -387,12 +433,12 @@ export function useFFmpegExport({
         }
 
         const data = await ffmpeg.readFile('output.mp4');
-        const url = URL.createObjectURL(new Blob([data as any], { type: 'video/mp4' }));
+        const url = URL.createObjectURL(new Blob([data as BlobPart], { type: 'video/mp4' }));
         downloadFile(url, `${outputName || 'zonewave'}-cinematic.mp4`);
       }
     } catch (e) {
       console.error(e);
-      const errMsg = (e as any)?.message || JSON.stringify(e) || "Unknown Error";
+      const errMsg = e instanceof Error ? e.message : String(e);
       alert("Error processing your media! \n\n" + errMsg);
     } finally {
       setIsExporting(false);

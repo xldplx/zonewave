@@ -34,7 +34,10 @@ export function useAudioGraph({
   bpmSyncEnabled,
   tremoloSyncDivision,
   delaySyncDivision,
-  sidechainSyncDivision
+  sidechainSyncDivision,
+  isBypassed = false,
+  pitchSemitones = 0,
+  preservePitch = false
 }: {
   audioRef: RefObject<HTMLAudioElement | null>;
   rate: number;
@@ -69,6 +72,9 @@ export function useAudioGraph({
   tremoloSyncDivision: string;
   delaySyncDivision: string;
   sidechainSyncDivision: string;
+  isBypassed?: boolean;
+  pitchSemitones?: number;
+  preservePitch?: boolean;
 }) {
   const [ctxInitialized, setCtxInitialized] = useState(false);
   
@@ -126,6 +132,9 @@ export function useAudioGraph({
   const haasDelayRef = useRef<DelayNode | null>(null);
   const punchCompRef = useRef<DynamicsCompressorNode | null>(null);
   const punchMakeupRef = useRef<GainNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const fxBusGainRef = useRef<GainNode | null>(null);
+  const dryBypassGainRef = useRef<GainNode | null>(null);
 
   // Bitcrusher generator
   const makeDistortionCurve = (amount: number) => {
@@ -494,22 +503,41 @@ export function useAudioGraph({
     punchCompRef.current = punchComp;
     punchMakeupRef.current = punchMakeup;
     
-    // Master Volume Control Layer
+    // Master Volume & Analyser Layer
     const masterGain = ctx.createGain();
     masterGain.gain.value = masterVolume;
     masterGainRef.current = masterGain;
 
+    const fxBusGain = ctx.createGain();
+    fxBusGain.gain.value = isBypassed ? 0.0 : 1.0;
+    fxBusGainRef.current = fxBusGain;
+
+    const dryBypassGain = ctx.createGain();
+    dryBypassGain.gain.value = isBypassed ? 1.0 : 0.0;
+    dryBypassGainRef.current = dryBypassGain;
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    analyserRef.current = analyser;
+
     noiseNode.connect(ambientGain);
-    ambientGain.connect(masterGain);
-    vinylGain.connect(masterGain);
-    masterGain.connect(ctx.destination);
+    ambientGain.connect(fxBusGain);
+    vinylGain.connect(fxBusGain);
+
+    source.connect(dryBypassGain);
+    dryBypassGain.connect(masterGain);
+    fxBusGain.connect(masterGain);
+
+    masterGain.connect(analyser);
+    analyser.connect(ctx.destination);
     noiseNode.start();
     ambientGainRef.current = ambientGain;
 
     // MAIN ROUTING
     // Parallel Sub-Bass processing
     source.connect(subBassFilter);
-    subBassGain.connect(masterGain);
+    subBassGain.connect(fxBusGain);
 
     source.connect(vibratoDelay);
     vibratoDelay.connect(biquad);
@@ -605,7 +633,7 @@ export function useAudioGraph({
     wetGain.connect(punchComp);
 
     punchComp.connect(punchMakeup);
-    punchMakeup.connect(masterGain);
+    punchMakeup.connect(fxBusGain);
 
     setCtxInitialized(true);
   };
@@ -619,10 +647,39 @@ export function useAudioGraph({
   // State Effect Updaters
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.playbackRate = rate;
-      if ('preservesPitch' in audioRef.current) (audioRef.current as any).preservesPitch = false;
+      if (isBypassed) {
+        audioRef.current.playbackRate = 1.0;
+        if ('preservesPitch' in audioRef.current) {
+          (audioRef.current as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+        }
+        return;
+      }
+
+      const semitoneRatio = Math.pow(2, pitchSemitones / 12);
+      if (preservePitch) {
+        if ('preservesPitch' in audioRef.current) {
+          (audioRef.current as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+        }
+        audioRef.current.playbackRate = rate;
+      } else {
+        if ('preservesPitch' in audioRef.current) {
+          (audioRef.current as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false;
+        }
+        audioRef.current.playbackRate = rate * semitoneRatio;
+      }
     }
-  }, [rate, audioRef]);
+  }, [rate, pitchSemitones, preservePitch, isBypassed, audioRef]);
+
+  // A/B Bypass smooth crossfade
+  useEffect(() => {
+    if (fxBusGainRef.current && dryBypassGainRef.current && ctxRef.current) {
+      const t = ctxRef.current.currentTime;
+      fxBusGainRef.current.gain.cancelScheduledValues(t);
+      dryBypassGainRef.current.gain.cancelScheduledValues(t);
+      fxBusGainRef.current.gain.setTargetAtTime(isBypassed ? 0.0 : 1.0, t, 0.015);
+      dryBypassGainRef.current.gain.setTargetAtTime(isBypassed ? 1.0 : 0.0, t, 0.015);
+    }
+  }, [isBypassed]);
 
   useEffect(() => {
     if (vibratoLfoGainRef.current) vibratoLfoGainRef.current.gain.value = vibratoDepth * 0.005;
@@ -866,6 +923,9 @@ export function useAudioGraph({
     haasDelayRef.current = null;
     punchCompRef.current = null;
     punchMakeupRef.current = null;
+    analyserRef.current = null;
+    fxBusGainRef.current = null;
+    dryBypassGainRef.current = null;
 
     tremoloLfoRef.current = null;
     chorusLfoOscRef.current = null;
@@ -880,5 +940,5 @@ export function useAudioGraph({
     setCtxInitialized(false);
   };
 
-  return { initWebAudio, ctxInitialized, resumeContext, resetAudioGraph };
+  return { initWebAudio, ctxInitialized, resumeContext, resetAudioGraph, analyserRef };
 }

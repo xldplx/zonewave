@@ -29,7 +29,15 @@ export function useAudioGraph({
   fuzzFactor,
   lofiSampleRate,
   haasDelayFactor,
-  dynamicPunch
+  dynamicPunch,
+  bpm,
+  bpmSyncEnabled,
+  tremoloSyncDivision,
+  delaySyncDivision,
+  sidechainSyncDivision,
+  isBypassed = false,
+  pitchSemitones = 0,
+  preservePitch = false
 }: {
   audioRef: RefObject<HTMLAudioElement | null>;
   rate: number;
@@ -59,6 +67,14 @@ export function useAudioGraph({
   lofiSampleRate: number;
   haasDelayFactor: number;
   dynamicPunch: number;
+  bpm: number;
+  bpmSyncEnabled: boolean;
+  tremoloSyncDivision: string;
+  delaySyncDivision: string;
+  sidechainSyncDivision: string;
+  isBypassed?: boolean;
+  pitchSemitones?: number;
+  preservePitch?: boolean;
 }) {
   const [ctxInitialized, setCtxInitialized] = useState(false);
   
@@ -71,9 +87,11 @@ export function useAudioGraph({
   const vibratoLfoGainRef = useRef<GainNode | null>(null);
   const tremoloLfoGainRef = useRef<GainNode | null>(null);
   const tremoloGainRef = useRef<GainNode | null>(null);
+  const tremoloLfoRef = useRef<OscillatorNode | null>(null);
 
   const chorusLfoRef = useRef<GainNode | null>(null);
   const chorusWetGainRef = useRef<GainNode | null>(null);
+  const chorusLfoOscRef = useRef<OscillatorNode | null>(null);
   
   const pannerLfoGainRef = useRef<GainNode | null>(null);
   const dryGainRef = useRef<GainNode | null>(null); 
@@ -85,21 +103,28 @@ export function useAudioGraph({
   
   const flangerWetRef = useRef<GainNode | null>(null);
   const flangerLfoRef = useRef<GainNode | null>(null);
+  const flangerLfoOscRef = useRef<OscillatorNode | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
 
   // New FX Refs
   const pingPongWetRef = useRef<GainNode | null>(null);
+  const delayLRef = useRef<DelayNode | null>(null);
+  const delayRRef = useRef<DelayNode | null>(null);
   const ringModWetRef = useRef<GainNode | null>(null);
   const phaserLfoRef = useRef<GainNode | null>(null);
+  const phaserLfoOscRef = useRef<OscillatorNode | null>(null);
   const phaserWetRef = useRef<GainNode | null>(null);
+  const sidechainLfoRef = useRef<OscillatorNode | null>(null);
   const sidechainLfoGainRef = useRef<GainNode | null>(null);
   const vinylGainRef = useRef<GainNode | null>(null);
   const subBassGainRef = useRef<GainNode | null>(null);
+  const autoWahLfoRef = useRef<OscillatorNode | null>(null);
   const autoWahLfoGainRef = useRef<GainNode | null>(null);
   const autoWahDryRef = useRef<GainNode | null>(null);
   const autoWahWetRef = useRef<GainNode | null>(null);
 
   const megaphoneWetRef = useRef<GainNode | null>(null);
+  const tapeDelayNodeRef = useRef<DelayNode | null>(null);
   const tapeDelayWetRef = useRef<GainNode | null>(null);
   const fuzzRef = useRef<WaveShaperNode | null>(null);
   const resampleFilterRef = useRef<BiquadFilterNode | null>(null);
@@ -107,6 +132,9 @@ export function useAudioGraph({
   const haasDelayRef = useRef<DelayNode | null>(null);
   const punchCompRef = useRef<DynamicsCompressorNode | null>(null);
   const punchMakeupRef = useRef<GainNode | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const fxBusGainRef = useRef<GainNode | null>(null);
+  const dryBypassGainRef = useRef<GainNode | null>(null);
 
   // Bitcrusher generator
   const makeDistortionCurve = (amount: number) => {
@@ -209,6 +237,7 @@ export function useAudioGraph({
     tremoloLfo.start();
     tremoloGainRef.current = tremoloGain;
     tremoloLfoGainRef.current = tremoloLfoGain;
+    tremoloLfoRef.current = tremoloLfo;
 
     // 5. Chorus Stereowidener (now correctly separated and phased)
     const chorusDelayR = ctx.createDelay();
@@ -237,6 +266,7 @@ export function useAudioGraph({
 
     chorusLfoRef.current = chorusLfoGain;
     chorusWetGainRef.current = chorusWetGain;
+    chorusLfoOscRef.current = chorusLfo;
 
     // 6. Tape Flanger
     const flangerDelay = ctx.createDelay(1.0);
@@ -254,6 +284,7 @@ export function useAudioGraph({
     flangerWet.gain.value = flangerFactor > 0 ? 0.6 : 0;
     const preFlangerDry = ctx.createGain();
     preFlangerDry.gain.value = 1.0;
+    flangerLfoOscRef.current = flangerLfo;
 
     flangerWetRef.current = flangerWet;
     flangerLfoRef.current = flangerLfoGain;
@@ -341,6 +372,8 @@ export function useAudioGraph({
     pingPongWet.gain.value = pingPongLevel;
     panL.connect(pingPongWet); panR.connect(pingPongWet);
     pingPongWetRef.current = pingPongWet;
+    delayLRef.current = delayL;
+    delayRRef.current = delayR;
 
     // 11. Ring Modulator
     const ringModOsc = ctx.createOscillator();
@@ -364,6 +397,7 @@ export function useAudioGraph({
     const phaserWet = ctx.createGain(); phaserWet.gain.value = phaserFactor > 0 ? 0.8 : 0;
     phaserLfoRef.current = phaserLfoGain;
     phaserWetRef.current = phaserWet;
+    phaserLfoOscRef.current = phaserLfo;
 
     // 13. Sidechain
     const sidechainGain = ctx.createGain(); sidechainGain.gain.value = 1;
@@ -376,6 +410,7 @@ export function useAudioGraph({
     sidechainLfoGain.connect(sidechainGain.gain);
     sidechainLfo.start();
     sidechainLfoGainRef.current = sidechainLfoGain;
+    sidechainLfoRef.current = sidechainLfo;
 
     // 14. Sub Bass Enhancer
     const subBassFilter = ctx.createBiquadFilter();
@@ -412,6 +447,7 @@ export function useAudioGraph({
     autoWahLfoGainRef.current = autoWahLfoGain;
     autoWahDryRef.current = autoWahDry;
     autoWahWetRef.current = autoWahWet;
+    autoWahLfoRef.current = autoWahLfo;
 
     // 16. Megaphone EQ (Bandpass + Distortion)
     const megaphoneFilter = ctx.createBiquadFilter();
@@ -436,6 +472,7 @@ export function useAudioGraph({
     
     const tapeDelayWet = ctx.createGain(); tapeDelayWet.gain.value = tapeDelayLevel;
     tapeDelayWetRef.current = tapeDelayWet;
+    tapeDelayNodeRef.current = tapeDelayNode;
 
     // 18. Fuzz
     const fuzzNode = ctx.createWaveShaper();
@@ -466,22 +503,41 @@ export function useAudioGraph({
     punchCompRef.current = punchComp;
     punchMakeupRef.current = punchMakeup;
     
-    // Master Volume Control Layer
+    // Master Volume & Analyser Layer
     const masterGain = ctx.createGain();
     masterGain.gain.value = masterVolume;
     masterGainRef.current = masterGain;
 
+    const fxBusGain = ctx.createGain();
+    fxBusGain.gain.value = isBypassed ? 0.0 : 1.0;
+    fxBusGainRef.current = fxBusGain;
+
+    const dryBypassGain = ctx.createGain();
+    dryBypassGain.gain.value = isBypassed ? 1.0 : 0.0;
+    dryBypassGainRef.current = dryBypassGain;
+
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    analyserRef.current = analyser;
+
     noiseNode.connect(ambientGain);
-    ambientGain.connect(masterGain);
-    vinylGain.connect(masterGain);
-    masterGain.connect(ctx.destination);
+    ambientGain.connect(fxBusGain);
+    vinylGain.connect(fxBusGain);
+
+    source.connect(dryBypassGain);
+    dryBypassGain.connect(masterGain);
+    fxBusGain.connect(masterGain);
+
+    masterGain.connect(analyser);
+    analyser.connect(ctx.destination);
     noiseNode.start();
     ambientGainRef.current = ambientGain;
 
     // MAIN ROUTING
     // Parallel Sub-Bass processing
     source.connect(subBassFilter);
-    subBassGain.connect(masterGain);
+    subBassGain.connect(fxBusGain);
 
     source.connect(vibratoDelay);
     vibratoDelay.connect(biquad);
@@ -577,7 +633,7 @@ export function useAudioGraph({
     wetGain.connect(punchComp);
 
     punchComp.connect(punchMakeup);
-    punchMakeup.connect(masterGain);
+    punchMakeup.connect(fxBusGain);
 
     setCtxInitialized(true);
   };
@@ -591,10 +647,39 @@ export function useAudioGraph({
   // State Effect Updaters
   useEffect(() => {
     if (audioRef.current) {
-      audioRef.current.playbackRate = rate;
-      if ('preservesPitch' in audioRef.current) (audioRef.current as any).preservesPitch = false;
+      if (isBypassed) {
+        audioRef.current.playbackRate = 1.0;
+        if ('preservesPitch' in audioRef.current) {
+          (audioRef.current as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+        }
+        return;
+      }
+
+      const semitoneRatio = Math.pow(2, pitchSemitones / 12);
+      if (preservePitch) {
+        if ('preservesPitch' in audioRef.current) {
+          (audioRef.current as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
+        }
+        audioRef.current.playbackRate = rate;
+      } else {
+        if ('preservesPitch' in audioRef.current) {
+          (audioRef.current as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false;
+        }
+        audioRef.current.playbackRate = rate * semitoneRatio;
+      }
     }
-  }, [rate, audioRef]);
+  }, [rate, pitchSemitones, preservePitch, isBypassed, audioRef]);
+
+  // A/B Bypass smooth crossfade
+  useEffect(() => {
+    if (fxBusGainRef.current && dryBypassGainRef.current && ctxRef.current) {
+      const t = ctxRef.current.currentTime;
+      fxBusGainRef.current.gain.cancelScheduledValues(t);
+      dryBypassGainRef.current.gain.cancelScheduledValues(t);
+      fxBusGainRef.current.gain.setTargetAtTime(isBypassed ? 0.0 : 1.0, t, 0.015);
+      dryBypassGainRef.current.gain.setTargetAtTime(isBypassed ? 1.0 : 0.0, t, 0.015);
+    }
+  }, [isBypassed]);
 
   useEffect(() => {
     if (vibratoLfoGainRef.current) vibratoLfoGainRef.current.gain.value = vibratoDepth * 0.005;
@@ -727,6 +812,77 @@ export function useAudioGraph({
     }
   }, [dynamicPunch]);
 
+  useEffect(() => {
+    const bps = bpm / 60;
+    const beat = 60 / bpm;
+
+    // Tremolo
+    if (tremoloLfoRef.current) {
+      let freq = 10.0;
+      if (bpmSyncEnabled) {
+        if (tremoloSyncDivision === '1/2') freq = bps * 0.5;
+        else if (tremoloSyncDivision === '1/8') freq = bps * 2;
+        else if (tremoloSyncDivision === '1/16') freq = bps * 4;
+        else freq = bps; // 1/4
+      }
+      tremoloLfoRef.current.frequency.value = freq;
+    }
+
+    // Sidechain
+    if (sidechainLfoRef.current) {
+      let freq = 2.0;
+      if (bpmSyncEnabled) {
+        if (sidechainSyncDivision === '1/2') freq = bps * 0.5;
+        else if (sidechainSyncDivision === '1/8') freq = bps * 2;
+        else freq = bps; // 1/4
+      }
+      sidechainLfoRef.current.frequency.value = freq;
+    }
+
+    // Ping-Pong Delay
+    let pingPongTime = 0.33;
+    if (bpmSyncEnabled) {
+      if (delaySyncDivision === '1/8') pingPongTime = beat * 0.5;
+      else if (delaySyncDivision === '1/16') pingPongTime = beat * 0.25;
+      else if (delaySyncDivision === '3/8') pingPongTime = beat * 0.75;
+      else pingPongTime = beat; // 1/4
+    }
+    if (delayLRef.current) delayLRef.current.delayTime.value = pingPongTime;
+    if (delayRRef.current) delayRRef.current.delayTime.value = pingPongTime;
+
+    // Tape Delay
+    if (tapeDelayNodeRef.current) {
+      let tapeTime = 0.4;
+      if (bpmSyncEnabled) {
+        if (delaySyncDivision === '1/8') tapeTime = beat * 0.5;
+        else if (delaySyncDivision === '1/16') tapeTime = beat * 0.25;
+        else if (delaySyncDivision === '3/8') tapeTime = beat * 0.75;
+        else tapeTime = beat; // 1/4
+      }
+      tapeDelayNodeRef.current.delayTime.value = tapeTime;
+    }
+
+    // Phaser
+    if (phaserLfoOscRef.current) {
+      phaserLfoOscRef.current.frequency.value = bpmSyncEnabled ? bps / 4 : 0.5;
+    }
+
+    // Flanger
+    if (flangerLfoOscRef.current) {
+      flangerLfoOscRef.current.frequency.value = bpmSyncEnabled ? bps / 4 : 0.5;
+    }
+
+    // Chorus
+    if (chorusLfoOscRef.current) {
+      chorusLfoOscRef.current.frequency.value = bpmSyncEnabled ? bps / 2 : 1.2;
+    }
+
+    // Auto-Wah
+    if (autoWahLfoRef.current) {
+      autoWahLfoRef.current.frequency.value = bpmSyncEnabled ? bps * 2 : 3.5;
+    }
+  }, [bpm, bpmSyncEnabled, tremoloSyncDivision, delaySyncDivision, sidechainSyncDivision]);
+
   const resetAudioGraph = () => {
     if (ctxRef.current) {
       ctxRef.current.close().catch(() => {});
@@ -767,8 +923,22 @@ export function useAudioGraph({
     haasDelayRef.current = null;
     punchCompRef.current = null;
     punchMakeupRef.current = null;
+    analyserRef.current = null;
+    fxBusGainRef.current = null;
+    dryBypassGainRef.current = null;
+
+    tremoloLfoRef.current = null;
+    chorusLfoOscRef.current = null;
+    flangerLfoOscRef.current = null;
+    delayLRef.current = null;
+    delayRRef.current = null;
+    phaserLfoOscRef.current = null;
+    sidechainLfoRef.current = null;
+    autoWahLfoRef.current = null;
+    tapeDelayNodeRef.current = null;
+
     setCtxInitialized(false);
   };
 
-  return { initWebAudio, ctxInitialized, resumeContext, resetAudioGraph };
+  return { initWebAudio, ctxInitialized, resumeContext, resetAudioGraph, analyserRef };
 }

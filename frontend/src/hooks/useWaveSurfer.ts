@@ -125,7 +125,7 @@ export function useWaveSurfer({
 
   const updateTrimRegion = (start: number, end: number) => {
     let s = Math.max(0, start);
-    let e = Math.min(durationRef.current, end);
+    const e = Math.min(durationRef.current, end);
     if (s > e) s = e - 0.1;
 
     setTrimStart(s);

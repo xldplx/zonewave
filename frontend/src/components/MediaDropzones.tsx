@@ -1,5 +1,5 @@
 import { useDropzone } from "react-dropzone";
-import { FaFileUpload } from "react-icons/fa";
+import { FaMusic, FaImage } from "react-icons/fa";
 
 export interface MediaDropzonesProps {
   musicFile: File | null;
@@ -9,23 +9,100 @@ export interface MediaDropzonesProps {
 }
 
 export function MediaDropzones({ musicFile, imageFile, onMusicDrop, onImageDrop }: MediaDropzonesProps) {
-  const { getRootProps: musicRootProps, getInputProps: musicInputProps, isDragActive: musicDrag } = useDropzone({ onDrop: onMusicDrop, accept: { 'audio/*': ['.mp3', '.wav', '.ogg'] }, maxFiles: 1 });
-  const { getRootProps: imgRootProps, getInputProps: imgInputProps, isDragActive: imgDrag } = useDropzone({ onDrop: onImageDrop, accept: { 'image/*': ['.jpg', '.png', '.jpeg'] }, maxFiles: 1 });
+  const { getRootProps: musicRootProps, getInputProps: musicInputProps, isDragActive: musicDrag } = useDropzone({
+    onDrop: onMusicDrop,
+    accept: {
+      'audio/*': [
+        '.mp3',
+        '.wav',
+        '.ogg',
+        '.flac',
+        '.m4a',
+        '.aac',
+        '.opus',
+        '.wma',
+        '.aiff',
+        '.aif',
+        '.weba',
+        '.webm'
+      ]
+    },
+    maxFiles: 1
+  });
+
+  const { getRootProps: imgRootProps, getInputProps: imgInputProps, isDragActive: imgDrag } = useDropzone({
+    onDrop: onImageDrop,
+    accept: {
+      'image/*': [
+        '.jpg',
+        '.jpeg',
+        '.png',
+        '.webp',
+        '.avif',
+        '.gif',
+        '.bmp',
+        '.tiff',
+        '.tif',
+        '.svg'
+      ]
+    },
+    maxFiles: 1
+  });
 
   return (
-    <div className="flex gap-[1rem] md:flex-row flex-col w-full justify-center relative z-20">
-      <div {...musicRootProps()} className={`flex flex-col flex-1 justify-center items-center p-[2rem] md:p-[3rem] rounded-xl border border-dashed transition-all duration-300 cursor-pointer ${musicDrag ? 'border-white bg-zinc-900/80 scale-[1.02]' : 'border-zinc-700 bg-zinc-900/30 hover:border-zinc-500 hover:bg-zinc-900/50'}`}>
+    <div className="flex gap-3 md:flex-row flex-col w-full justify-center select-none">
+      {/* Audio Dropzone */}
+      <div 
+        {...musicRootProps()} 
+        className={`flex flex-col flex-1 justify-center items-center p-6 md:p-8 rounded-xl border transition-all cursor-pointer ${
+          musicDrag 
+            ? 'border-white bg-zinc-950 scale-[1.01]' 
+            : musicFile 
+              ? 'border-zinc-700 bg-[#09090b]' 
+              : 'border-zinc-800/80 bg-black hover:border-zinc-600 hover:bg-[#09090b]'
+        }`}
+      >
         <input {...musicInputProps()} />
-        <FaFileUpload size={28} className={musicDrag ? 'text-white' : 'text-zinc-500'} />
-        <h1 className="mt-4 text-sm font-bold truncate max-w-[200px]">{musicFile ? musicFile.name : "DRAG & DROP AUDIO"}</h1>
-        <p className="text-[10px] text-zinc-500 mt-2 tracking-widest font-mono">.MP3 / .WAV</p>
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${
+          musicFile ? 'bg-white text-black border-white' : 'bg-zinc-950 text-zinc-400 border-zinc-800'
+        }`}>
+          <FaMusic size={14} />
+        </div>
+        <h4 className="mt-3 text-xs font-mono font-bold tracking-wider truncate max-w-[260px] text-center text-white">
+          {musicFile ? musicFile.name : "CHOOSE AUDIO TRACK"}
+        </h4>
+        <p className="text-[9px] text-zinc-500 mt-1 tracking-wider font-mono uppercase text-center">
+          {musicFile 
+            ? `${(musicFile.size / (1024 * 1024)).toFixed(2)} MB` 
+            : "MP3, WAV, FLAC, AAC, OGG, M4A, OPUS, AIFF"}
+        </p>
       </div>
 
-      <div {...imgRootProps()} className={`flex flex-col flex-1 justify-center items-center p-[2rem] md:p-[3rem] rounded-xl border border-dashed transition-all duration-300 cursor-pointer ${imgDrag ? 'border-white bg-zinc-900/80 scale-[1.02]' : 'border-zinc-700 bg-zinc-900/30 hover:border-zinc-500 hover:bg-zinc-900/50'}`}>
+      {/* Image Artwork Dropzone */}
+      <div 
+        {...imgRootProps()} 
+        className={`flex flex-col flex-1 justify-center items-center p-6 md:p-8 rounded-xl border transition-all cursor-pointer ${
+          imgDrag 
+            ? 'border-white bg-zinc-950 scale-[1.01]' 
+            : imageFile 
+              ? 'border-zinc-700 bg-[#09090b]' 
+              : 'border-zinc-800/80 bg-black hover:border-zinc-600 hover:bg-[#09090b]'
+        }`}
+      >
         <input {...imgInputProps()} />
-        <FaFileUpload size={28} className={imgDrag ? 'text-white' : 'text-zinc-500'} />
-        <h1 className="mt-4 text-sm font-bold truncate max-w-[200px]">{imageFile ? imageFile.name : "BACKGROUND ARTWORK"}</h1>
-        <p className="text-[10px] text-zinc-500 mt-2 tracking-widest font-mono">.JPG / .PNG (OPTIONAL)</p>
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${
+          imageFile ? 'bg-white text-black border-white' : 'bg-zinc-950 text-zinc-400 border-zinc-800'
+        }`}>
+          <FaImage size={14} />
+        </div>
+        <h4 className="mt-3 text-xs font-mono font-bold tracking-wider truncate max-w-[260px] text-center text-white">
+          {imageFile ? imageFile.name : "BACKGROUND ARTWORK"}
+        </h4>
+        <p className="text-[9px] text-zinc-500 mt-1 tracking-wider font-mono uppercase text-center">
+          {imageFile 
+            ? "Ready for video export" 
+            : "JPG, PNG, WEBP, AVIF, GIF, BMP, SVG"}
+        </p>
       </div>
     </div>
   );

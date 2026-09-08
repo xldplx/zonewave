@@ -34,6 +34,13 @@ export function useFFmpegExport({
   lofiSampleRate,
   haasDelayFactor,
   dynamicPunch,
+  bpm,
+  bpmSyncEnabled,
+  tremoloSyncDivision,
+  delaySyncDivision,
+  sidechainSyncDivision,
+  pitchSemitones = 0,
+  preservePitch = false,
   onExportComplete
 }: {
   musicFile: File | null;
@@ -67,6 +74,13 @@ export function useFFmpegExport({
   lofiSampleRate: number;
   haasDelayFactor: number;
   dynamicPunch: number;
+  bpm: number;
+  bpmSyncEnabled: boolean;
+  tremoloSyncDivision: string;
+  delaySyncDivision: string;
+  sidechainSyncDivision: string;
+  pitchSemitones?: number;
+  preservePitch?: boolean;
   onExportComplete?: () => void;
 }) {
   const [isExporting, setIsExporting] = useState(false);
@@ -110,7 +124,7 @@ export function useFFmpegExport({
     document.body.removeChild(a);
   };
 
-  const exportMedia = async (type: 'mp3' | 'mp4', outputName: string) => {
+  const exportMedia = async (type: 'mp3' | 'wav' | 'mp4', outputName: string) => {
     if (!musicFile) return;
     setIsExporting(true);
     setProgress(0);
@@ -118,14 +132,33 @@ export function useFFmpegExport({
 
     try {
       const ffmpeg = await loadFfmpeg();
-      const audioName = "input.mp3";
+      const audioExt = musicFile.name.split('.').pop()?.toLowerCase() || 'mp3';
+      const audioName = `input.${audioExt}`;
       await ffmpeg.writeFile(audioName, await fetchFile(musicFile));
       
       const duration = trimEnd - trimStart;
       let renderDuration = duration / rate;
 
-      const rateInt = Math.round(44100 * rate);
+      // Calculate pitch and tempo ratios
+      const semitoneRatio = Math.pow(2, (pitchSemitones || 0) / 12);
+      const pitchRatio = preservePitch ? semitoneRatio : (rate * semitoneRatio);
+      const tempoRatio = rate / pitchRatio;
+
+      const rateInt = Math.round(44100 * pitchRatio);
       let audioFilter = `asetrate=${rateInt},aresample=44100`;
+
+      if (Math.abs(tempoRatio - 1.0) > 0.005) {
+        let t = tempoRatio;
+        while (t > 2.0) {
+          audioFilter += `,atempo=2.0`;
+          t /= 2.0;
+        }
+        while (t < 0.5) {
+          audioFilter += `,atempo=0.5`;
+          t /= 0.5;
+        }
+        audioFilter += `,atempo=${t.toFixed(4)}`;
+      }
 
       // Chain logic natively
       if (vibratoDepth > 0) {
@@ -152,7 +185,11 @@ export function useFFmpegExport({
       }
 
       if (flangerFactor > 0) {
-        audioFilter += `,flanger=delay=3:depth=${(flangerFactor * 5).toFixed(1)}:regen=50:width=80:speed=0.5:shape=sine:phase=25:interp=linear`;
+        let flangerSpeed = 0.5;
+        if (bpmSyncEnabled) {
+          flangerSpeed = (bpm / 60) / 4;
+        }
+        audioFilter += `,flanger=delay=3:depth=${(flangerFactor * 5).toFixed(1)}:regen=50:width=80:speed=${flangerSpeed.toFixed(3)}:shape=sine:phase=25:interp=linear`;
       }
 
       if (lofiSampleRate > 0) {
@@ -170,33 +207,93 @@ export function useFFmpegExport({
       }
 
       if (tremoloDepth > 0) {
-         audioFilter += `,tremolo=f=10.0:d=${tremoloDepth.toFixed(2)}`; 
+         let tremoloFreq = 10.0;
+         if (bpmSyncEnabled) {
+           const bps = bpm / 60;
+           if (tremoloSyncDivision === '1/2') tremoloFreq = bps * 0.5;
+           else if (tremoloSyncDivision === '1/8') tremoloFreq = bps * 2;
+           else if (tremoloSyncDivision === '1/16') tremoloFreq = bps * 4;
+           else tremoloFreq = bps;
+         }
+         audioFilter += `,tremolo=f=${tremoloFreq.toFixed(2)}:d=${tremoloDepth.toFixed(2)}`; 
       }
       
       if (bassGain > 0) audioFilter += `,bass=g=${bassGain.toFixed(1)}:f=110:w=0.6`;
 
       if (subBassFactor > 0) audioFilter += `,bass=g=${(subBassFactor * 10).toFixed(2)}:f=80:w=0.5,acompressor=threshold=-20dB:ratio=4`;
 
-      if (pingPongLevel > 0) audioFilter += `,aecho=1.0:${(0.3 + (pingPongLevel*0.4)).toFixed(2)}:330|660:0.5|0.3`;
+      if (pingPongLevel > 0) {
+         let pingPongTime = 0.33;
+         if (bpmSyncEnabled) {
+           const beat = 60 / bpm;
+           if (delaySyncDivision === '1/8') pingPongTime = beat * 0.5;
+           else if (delaySyncDivision === '1/16') pingPongTime = beat * 0.25;
+           else if (delaySyncDivision === '3/8') pingPongTime = beat * 0.75;
+           else pingPongTime = beat;
+         }
+         const ppMs1 = Math.round(pingPongTime * 1000);
+         const ppMs2 = Math.round(pingPongTime * 2000);
+         audioFilter += `,aecho=1.0:${(0.3 + (pingPongLevel*0.4)).toFixed(2)}:${ppMs1}|${ppMs2}:0.5|0.3`;
+      }
       
-      if (tapeDelayLevel > 0) audioFilter += `,aecho=1.0:${tapeDelayLevel.toFixed(2)}:400:0.5`;
+      if (tapeDelayLevel > 0) {
+         let tapeTime = 0.4;
+         if (bpmSyncEnabled) {
+           const beat = 60 / bpm;
+           if (delaySyncDivision === '1/8') tapeTime = beat * 0.5;
+           else if (delaySyncDivision === '1/16') tapeTime = beat * 0.25;
+           else if (delaySyncDivision === '3/8') tapeTime = beat * 0.75;
+           else tapeTime = beat;
+         }
+         const tapeMs = Math.round(tapeTime * 1000);
+         audioFilter += `,aecho=1.0:${tapeDelayLevel.toFixed(2)}:${tapeMs}:0.5`;
+      }
 
       if (ringModFactor > 0) audioFilter += `,tremolo=f=50.0:d=${ringModFactor.toFixed(2)}`;
 
-      if (phaserFactor > 0) audioFilter += `,aphaser=in_gain=1:out_gain=1:delay=2:decay=0.5:speed=0.5:type=t`;
+      if (phaserFactor > 0) {
+         let phaserSpeed = 0.5;
+         if (bpmSyncEnabled) {
+           phaserSpeed = (bpm / 60) / 4;
+         }
+         audioFilter += `,aphaser=in_gain=1:out_gain=1:delay=2:decay=0.5:speed=${phaserSpeed.toFixed(3)}:type=t`;
+      }
 
-      if (sidechainFactor > 0) audioFilter += `,tremolo=f=2.0:d=${sidechainFactor.toFixed(2)}`;
+      if (sidechainFactor > 0) {
+         let sidechainFreq = 2.0;
+         if (bpmSyncEnabled) {
+           const bps = bpm / 60;
+           if (sidechainSyncDivision === '1/2') sidechainFreq = bps * 0.5;
+           else if (sidechainSyncDivision === '1/8') sidechainFreq = bps * 2;
+           else sidechainFreq = bps;
+         }
+         audioFilter += `,tremolo=f=${sidechainFreq.toFixed(2)}:d=${sidechainFactor.toFixed(2)}`;
+      }
       
       if (chorusEnabled) {
-         audioFilter += `,chorus=0.5:0.9:50|60:0.4|0.32:0.25|0.4:2|2.3`;
+         let chorusSpeed = 1.2;
+         if (bpmSyncEnabled) {
+           chorusSpeed = (bpm / 60) / 2;
+         }
+         // Note: FFmpeg's chorus command takes speeds as parameters, let's keep it robust and responsive
+         audioFilter += `,chorus=0.5:0.9:50|60:0.4|0.32:0.25|0.4:${chorusSpeed.toFixed(2)}|${(chorusSpeed * 1.2).toFixed(2)}`;
       }
 
       if (autoWahFactor > 0) {
-         // Approximate Web Audio Auto-wah with a resonant sweeping phaser
-         audioFilter += `,aphaser=in_gain=0.6:out_gain=1.2:delay=3:decay=0.4:speed=3.5:type=t`;
+         let autoWahSpeed = 3.5;
+         if (bpmSyncEnabled) {
+           autoWahSpeed = (bpm / 60) * 2;
+         }
+         audioFilter += `,aphaser=in_gain=0.6:out_gain=1.2:delay=3:decay=0.4:speed=${autoWahSpeed.toFixed(3)}:type=t`;
       }
 
-      if (enable8D) audioFilter += `,apulsator=hz=0.1`;
+      if (enable8D) {
+         let pulsatorHz = 0.1;
+         if (bpmSyncEnabled) {
+           pulsatorHz = (bpm / 60) / 8;
+         }
+         audioFilter += `,apulsator=hz=${pulsatorHz.toFixed(3)}`;
+      }
 
       if (haasDelayFactor > 0) {
         const ms = Math.round(haasDelayFactor * 30);
@@ -270,8 +367,31 @@ export function useFFmpegExport({
         }
         
         const data = await ffmpeg.readFile('output.mp3');
-        const url = URL.createObjectURL(new Blob([data as any], { type: 'audio/mpeg' }));
+        const url = URL.createObjectURL(new Blob([data as BlobPart], { type: 'audio/mpeg' }));
         downloadFile(url, `${outputName || 'zonewave'}-processed.mp3`);
+      } else if (type === 'wav') {
+        setProgressText("Rendering Lossless WAV Audio...");
+        ffmpegLogRef.current = ""; 
+
+        const cleanFilterComplex = filterComplex.endsWith(';') ? filterComplex.slice(0, -1) : filterComplex;
+
+        const ret = await ffmpeg.exec([
+          '-ss', trimStart.toFixed(3),
+          '-t', duration.toFixed(3),
+          '-i', audioName,
+          '-filter_complex', cleanFilterComplex,
+          '-map', '[mixout]',
+          '-c:a', 'pcm_s16le',
+          'output.wav'
+        ]);
+
+        if (ret !== 0) {
+          throw new Error(`FFmpeg exited with code ${ret}.\n\nDetailed Log:\n${ffmpegLogRef.current}`);
+        }
+        
+        const data = await ffmpeg.readFile('output.wav');
+        const url = URL.createObjectURL(new Blob([data as BlobPart], { type: 'audio/wav' }));
+        downloadFile(url, `${outputName || 'zonewave'}-lossless.wav`);
       } else if (type === 'mp4') {
         const imageExt = imageFile ? imageFile.name.split('.').pop() : 'jpg';
         const imageName = `bg.${imageExt}`;
@@ -279,7 +399,7 @@ export function useFFmpegExport({
           await ffmpeg.writeFile(imageName, await fetchFile(imageFile));
         } else throw new Error("Background image required for MP4 export");
 
-        setProgressText("Rendering Cinematic Suite... (Static mode for maximum speed)");
+        setProgressText("Rendering video with background artwork...");
         
         ffmpegLogRef.current = ""; 
 
@@ -313,12 +433,12 @@ export function useFFmpegExport({
         }
 
         const data = await ffmpeg.readFile('output.mp4');
-        const url = URL.createObjectURL(new Blob([data as any], { type: 'video/mp4' }));
+        const url = URL.createObjectURL(new Blob([data as BlobPart], { type: 'video/mp4' }));
         downloadFile(url, `${outputName || 'zonewave'}-cinematic.mp4`);
       }
     } catch (e) {
       console.error(e);
-      const errMsg = (e as any)?.message || JSON.stringify(e) || "Unknown Error";
+      const errMsg = e instanceof Error ? e.message : String(e);
       alert("Error processing your media! \n\n" + errMsg);
     } finally {
       setIsExporting(false);
